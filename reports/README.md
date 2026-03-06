@@ -6,6 +6,10 @@ This directory collects weekly meeting material, including short written updates
 
 - [2026-03-06-weekly.md](2026-03-06-weekly.md): initial weekly summary for the 10gs example set
 
+## Useful Cross-Links
+
+- [Full pipeline diagram](../docs/ARCHITECTURE.md#pipeline-summary): end-to-end flow of the current method
+
 ## Available Visual Assets
 
 Primary GIFs already in the repository:
