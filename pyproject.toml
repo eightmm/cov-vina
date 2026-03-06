@@ -1,7 +1,7 @@
 [project]
 name = "lig-align"
 version = "0.1.0"
-description = "Add your description here"
+description = "Reference-guided ligand pose prediction with MCS alignment, Vina scoring, and torsion optimization"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [

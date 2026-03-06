@@ -84,8 +84,10 @@ uv run python scripts/run_pipeline.py \
   - use for the fastest and most conservative contiguous-core match
 - `multi`
   - use when the reference is symmetric and you want all equivalent placements enumerated
+  - current pipeline still continues with the first candidate after enumeration
 - `cross`
   - use when one contiguous MCS is too restrictive and multiple fragments matter
+  - current pipeline still continues with the first generated combination
 
 ### Query From SDF
 
@@ -120,6 +122,27 @@ Useful files:
 - `examples/10gs/visualizations/test_ref_run.gif`
 - `examples/10gs/visualizations/combinatorial/`
 
+## Relaxation And Score Metadata
+
+Each exported SDF can include run metadata that explains what happened during placement and optimization.
+
+Important fields:
+
+- `LigAlign_MCS_Mode`: the mode actually used after `auto` resolution
+- `LigAlign_MCS_Mode_Requested`: the mode requested by the user
+- `LigAlign_MMFF_Requested`: whether relaxation was requested
+- `LigAlign_MMFF_Optimized`: whether relaxation actually ran successfully
+- `LigAlign_Relaxation_Summary`: why relaxation was applied, skipped, or fell back
+- `Vina_Score_Initial`: score before gradient optimization
+- `Vina_Score_Final`: score after optimization or final ranking pass
+- `Vina_Score_Delta`: final minus initial score
+
+Practical interpretation:
+
+- if `LigAlign_MMFF_Requested=True` and `LigAlign_MMFF_Optimized=False`, the pipeline judged that relaxation was not safe or not meaningful for that pose
+- if `Vina_Score_Delta` is negative, optimization improved the score
+- if `Vina_Score_Delta` is near zero, either the pose was already near a local minimum or there were no useful torsional moves available
+
 ## Testing
 
 Run the existing tests with `uv` so the same environment definition is reused.
@@ -128,4 +151,5 @@ Run the existing tests with `uv` so the same environment definition is reused.
 uv run python tests/test_mcs_modes_cli.py
 uv run python tests/test_pipeline_api.py
 uv run python tests/test_unified_mcs_api.py
+uv run python tests/test_mcs_auto_mode.py
 ```

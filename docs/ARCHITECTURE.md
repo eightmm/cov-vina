@@ -15,6 +15,26 @@ graph TD
     I --> J[Rescore and export poses]
 ```
 
+## MCS Decision Rule
+
+The current default is `mcs_mode=auto`.
+
+```mermaid
+graph TD
+    A[Run simple MCS search] --> B{More than one placement?}
+    B -->|Yes| C[Choose multi]
+    B -->|No| D[Run cross-matching probe]
+    D --> E{Cross match covers more atoms?}
+    E -->|Yes| F[Choose cross]
+    E -->|No| G[Choose single]
+```
+
+Interpretation:
+
+- `multi` is selected when the same largest simple MCS lands in multiple symmetry-equivalent reference positions
+- `cross` is selected only when multi-fragment matching increases the total anchor size beyond the best simple MCS
+- otherwise the pipeline stays conservative and uses `single`
+
 ## End-To-End Inputs
 
 Required inputs:
@@ -61,7 +81,7 @@ Behavior by option:
 - `cross`
   - allows multiple fragments and cross-combinations between reference and query
   - intended for more complex or fragmented common substructure cases
-  - currently reports all combinations and uses the first one for continuation
+  - current pipeline reports all combinations but uses the first generated combination for continuation
 
 Practical guidance:
 
@@ -154,17 +174,20 @@ Main option:
 Behavior:
 
 - mapped query atoms are placed exactly onto reference coordinates
-- if MMFF is enabled, MCS atoms are fixed and appendages are relaxed with MMFF94
-- if MMFF is disabled, the pipeline keeps the exact coordinate transfer without local force-field cleanup
+- if relaxation is enabled, the pipeline attempts MMFF first and falls back to UFF when MMFF construction or minimization is unstable
+- if all query atoms are already fixed by the MCS, relaxation is skipped because there is nothing meaningful to move
+- the result is written back into SDF metadata through `LigAlign_MMFF_Requested`, `LigAlign_MMFF_Optimized`, and `LigAlign_Relaxation_Summary`
 
 Practical guidance:
 
-- keep MMFF enabled for most runs
-- disable MMFF only when you want to inspect the raw anchor-transfer effect or debug placement issues
+- keep relaxation enabled for most runs
+- disable relaxation only when you want to inspect the raw anchor-transfer effect or debug placement issues
+- if `LigAlign_Relaxation_Summary` says the pose was skipped, that usually means the MCS already covered the entire query heavy-atom graph
 
 Outputs from this stage:
 
 - tensor of aligned coordinates for each representative conformer
+- relaxation metadata describing whether MMFF or UFF actually ran
 
 ### 6. Vina-Style Scoring
 
@@ -256,6 +279,7 @@ Outputs from this stage:
 - optimized coordinates
 - rescored pose energies
 - score deltas relative to the initial scoring pass
+- SDF metadata including `Vina_Score_Initial`, `Vina_Score_Final`, and `Vina_Score_Delta`
 
 ### 8. Selection And Export
 
@@ -282,9 +306,12 @@ Output files:
 Metadata written to outputs includes:
 
 - MCS coverage
+- requested and actual MCS mode
 - number of generated conformers
-- whether MMFF relaxation was used
+- whether relaxation was requested and actually applied
+- relaxation summary
 - whether gradient optimization was used
+- initial/final score and score delta
 
 ## Option Summary
 
@@ -302,5 +329,5 @@ Metadata written to outputs includes:
 
 - Batched operations matter more than single-pose peak quality for throughput
 - MCS anchoring is the central design constraint of the current system
-- `multi` and `cross` modes currently enumerate multiple mappings but continue with the first candidate
+- `multi` and `cross` currently enumerate multiple mappings but continue with the first candidate
 - scoring and optimization share the same feature representation and energy family, which keeps refinement behavior consistent with ranking

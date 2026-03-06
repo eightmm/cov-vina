@@ -54,6 +54,24 @@ print(results["best_score"])
 print(results["output_file"])
 ```
 
+## Example Assets
+
+The repository includes a ready-to-run example set under `examples/10gs`:
+
+- `examples/10gs/10gs_pocket.pdb`: example protein pocket
+- `examples/10gs/10gs_ligand.sdf`: reference ligand used as the alignment anchor
+- `examples/10gs/visualizations/`: GIFs used in reports and method comparisons
+
+## Notes On Output Metadata
+
+Exported SDF files can contain useful run metadata for inspection:
+
+- `LigAlign_MCS_Mode` and `LigAlign_MCS_Mode_Requested`
+- `LigAlign_MMFF_Requested`, `LigAlign_MMFF_Optimized`, and `LigAlign_Relaxation_Summary`
+- `Vina_Score_Initial`, `Vina_Score_Final`, and `Vina_Score_Delta`
+
+This makes it easier to tell whether relaxation ran, how `auto` MCS resolved, and whether optimization improved the score.
+
 ## Repository Guide
 
 - [docs/README.md](docs/README.md): documentation index
@@ -66,8 +84,8 @@ print(results["output_file"])
 
 - Core pipeline implemented in `src/lig_align`
 - Example input and output assets included under `examples/10gs`
-- Historical design notes retained in `docs/`
-- Initial weekly reporting structure added in `reports/`
+- Documentation reorganized around usage, API, and architecture
+- Weekly reporting structure added under `reports/`
 
 ## Project Layout
 

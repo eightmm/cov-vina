@@ -5,10 +5,12 @@ This directory collects weekly meeting material, including short written updates
 ## Weekly Reports
 
 - [2026-03-06-weekly.md](2026-03-06-weekly.md): initial weekly summary for the 10gs example set
+- [weekly-template.md](weekly-template.md): reusable template for future updates
 
 ## Useful Cross-Links
 
 - [Full pipeline diagram](../docs/ARCHITECTURE.md#pipeline-summary): end-to-end flow of the current method
+- [MCS decision rule](../docs/ARCHITECTURE.md#mcs-decision-rule): how `auto` chooses `single`, `multi`, or `cross`
 
 ## Available Visual Assets
 

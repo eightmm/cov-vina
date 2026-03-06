@@ -9,11 +9,12 @@ wheels/
 *.egg-info
 *.egg
 
-# Virtual environments
+# Virtual environments and local package cache
 .venv
 venv/
 ENV/
 env/
+.uv-cache/
 
 # IDE
 .vscode/
@@ -32,21 +33,22 @@ env/
 .ipynb_checkpoints/
 *.ipynb
 
-# Testing
+# Testing and transient outputs
 .pytest_cache/
 .coverage
 htmlcov/
 *.log
-
-# Output files
+test_outputs/
 output/
 output_*/
+
+# Structure files: ignore by default, keep checked-in examples
 *.sdf
 *.pdb
 !examples/**/*.sdf
 !examples/**/*.pdb
 
-# Images (except examples)
+# Images: ignore by default, keep checked-in examples
 *.png
 *.jpg
 *.gif
