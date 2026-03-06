@@ -18,6 +18,7 @@ from lig_align.alignment import LigandKinematics
 from lig_align.scoring import vina_scoring, compute_intramolecular_mask
 from lig_align.io import process_query_ligand
 from lig_align.io.visualization import get_2d_image, draw_molecule_3d
+from lig_align.molecular.relax import relax_pose_with_fixed_core
 
 def main():
     parser = argparse.ArgumentParser()
@@ -75,14 +76,8 @@ def main():
         pos = ref_conf.GetAtomPosition(ref_idx)
         conf.SetAtomPosition(query_idx, pos)
         
-    props = AllChem.MMFFGetMoleculeProperties(query_mol)
-    ff = AllChem.MMFFGetMoleculeForceField(query_mol, props, confId=cid)
-    for ref_idx, query_idx in mapping:
-        ff.AddFixedPoint(query_idx)
-    try:
-        ff.Minimize(maxIts=500)
-    except RuntimeError as e:
-        print(f"Skipping MMFF optimization due to structure conflict: {e}")
+    applied, message = relax_pose_with_fixed_core(query_mol, cid, set(query_indices), max_iters=500)
+    print(f"Relaxation status: {message}")
     
     init_coords = torch.tensor(conf.GetPositions(), dtype=torch.float32, device=device)
     

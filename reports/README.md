@@ -20,6 +20,7 @@ Primary GIFs already in the repository:
 - `examples/10gs/visualizations/test_ref_run.gif`
 - `examples/10gs/visualizations/torsion_penalty_on.gif`
 - `examples/10gs/visualizations/torsion_penalty_off.gif`
+- `examples/10gs/visualizations/coverage/`
 - `examples/10gs/visualizations/combinatorial/`
 
 ## Suggested Reporting Pattern
