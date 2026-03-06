@@ -17,10 +17,10 @@ Primary GIFs already in the repository:
 
 - `examples/10gs/visualizations/test_run.gif`
 - `examples/10gs/visualizations/test_ref_run.gif`
-- `examples/10gs/visualizations/torsion_penalty_on.gif`
-- `examples/10gs/visualizations/torsion_penalty_off.gif`
+- `examples/10gs/visualizations/mcs_q1_fixed.gif`
+- `examples/10gs/visualizations/mcs_q1_free.gif`
 - `examples/10gs/visualizations/coverage/`
-- `examples/10gs/visualizations/combinatorial/`
+- `examples/10gs/predictions/`
 
 ## Benchmark Utilities
 

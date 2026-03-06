@@ -126,7 +126,8 @@ Useful files:
 - `examples/10gs/10gs_ligand.sdf`
 - `examples/10gs/visualizations/test_run.gif`
 - `examples/10gs/visualizations/test_ref_run.gif`
-- `examples/10gs/visualizations/combinatorial/`
+- `examples/10gs/visualizations/coverage/`
+- `examples/10gs/predictions/`
 
 ## Relaxation And Score Metadata
 
