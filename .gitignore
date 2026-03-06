@@ -43,6 +43,8 @@ output/
 output_*/
 *.sdf
 *.pdb
+!examples/**/*.sdf
+!examples/**/*.pdb
 
 # Images (except examples)
 *.png
