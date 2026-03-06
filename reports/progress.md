@@ -49,16 +49,28 @@ The current asset set is useful for four questions:
 
 ### Runtime And Batch Behavior
 
-Measured on `CPU` with the current `10gs` example pocket and `100` optimization steps.
+This section answers two practical questions:
+
+1. which parts of the current pipeline actually dominate runtime
+2. whether batching and early stopping reduce optimization cost in practice
+
+Timing conditions for the stage-level table:
+
+- device: `CPU`
+- pocket: `examples/10gs/10gs_pocket.pdb`
+- reference: `examples/10gs/10gs_ligand.sdf`
+- conformer generation: `50`
+- optimization budget: `100` steps
+- relaxation: enabled when applicable
 
 Stage-level timing:
 
-| Molecule | Heavy atoms | Torsions | MCS atoms | Conformer + clustering | Relax | Query feature | Pocket feature | Optimization (100 steps) |
+| Molecule | Heavy atoms | Torsions | MCS atoms | Conformer + clustering | Relax | Query feature | Pocket feature | Optimization (100 steps) | Approx. total |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| Flurbiprofen | 14 | 1 | 10 | 0.301 s | 0.002 s | 0.002 s | 1.758 s | 0.380 s |
-| Diclofenac | 19 | 2 | 10 | 0.310 s | 0.002 s | 0.003 s | 1.758 s | 0.496 s |
-| Acemetacin | 26 | 4 | 10 | 0.700 s | 0.006 s | 0.004 s | 1.758 s | 0.264 s |
-| Cyclohexylmethyl analog | 32 | 1 | 26 | 1.355 s | 0.003 s | 0.006 s | 1.758 s | 0.365 s |
+| Flurbiprofen | 14 | 1 | 10 | 0.301 s | 0.002 s | 0.002 s | 1.758 s | 0.380 s | 2.44 s |
+| Diclofenac | 19 | 2 | 10 | 0.310 s | 0.002 s | 0.003 s | 1.758 s | 0.496 s | 2.57 s |
+| Acemetacin | 26 | 4 | 10 | 0.700 s | 0.006 s | 0.004 s | 1.758 s | 0.264 s | 2.74 s |
+| Cyclohexylmethyl analog | 32 | 1 | 26 | 1.355 s | 0.003 s | 0.006 s | 1.758 s | 0.365 s | 3.50 s |
 
 Interpretation:
 
@@ -66,8 +78,12 @@ Interpretation:
 - the largest fixed cost is pocket feature construction at about `1.76 s` per run
 - conformer generation and clustering grows the most with molecule size and flexibility
 - optimization cost scales with `step` count, but not monotonically with heavy-atom count alone
-- this makes pocket feature caching the most obvious first optimization for repeated runs on the same receptor
+- this is why pocket feature caching is now the default direction for repeated runs on the same receptor
 - a same-process smoke test showed `10gs` pocket loading dropping from about `2.01 s` on first load to effectively `0 s` on cache hit
+
+Main takeaway:
+
+- for repeated runs on one receptor, the first optimization to apply is pocket caching, not MCS tuning
 
 Batch and early-stopping probe:
 
@@ -90,13 +106,23 @@ Interpretation:
 - the main reason is that the optimizer still iterates pose-by-pose inside each batch, so this is workflow batching rather than a fully vectorized batched optimizer
 - heterogeneous batches with different molecules are not yet supported by the current API
 - `VRAM` was not measured here because CUDA was not available in the current environment
+- `scripts/benchmark_runtime.py` now reports peak allocated and reserved GPU memory automatically when run on a CUDA device
 - runtime variance across seeds is large because the representative-pose count changes substantially with seeded conformer generation
+
+Term clarification:
+
+- `Representative poses mean` is the average number of poses that survived Butina clustering and actually entered optimization
 
 What this suggests:
 
-- pocket feature caching is likely a higher-value speedup than changing `batch_size`
+- early stopping is already useful in the current setup for longer runs
+- pocket feature caching matters more than changing `batch_size`
 - if batch efficiency is a priority, the optimization loop should move toward true tensorized multi-pose execution
 - early stopping is worth keeping, but it should always be evaluated together with pose-count variance across seeds
+
+Main takeaway:
+
+- keep early stopping on for longer optimization budgets, but do not expect `batch_size` alone to fix runtime until the optimizer becomes truly vectorized
 
 ### Representative Optimization Run
 

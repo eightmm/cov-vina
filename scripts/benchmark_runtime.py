@@ -8,10 +8,11 @@ from rdkit.Chem import AllChem
 from rdkit.ML.Cluster import Butina
 
 from lig_align.aligner import LigandAligner
-from lig_align.alignment import LigandKinematics
 from lig_align.io import load_pocket_bundle, process_query_ligand
 from lig_align.molecular.relax import relax_pose_with_fixed_core
-from lig_align.scoring import compute_intramolecular_mask, vina_scoring
+from lig_align.optimization import optimize_torsions_vina
+from lig_align.alignment import LigandKinematics
+from lig_align.scoring import compute_intramolecular_mask
 
 
 def generate_seeded_representatives(mol, device, num_confs, rmsd_threshold, coord_map, seed):
@@ -134,90 +135,46 @@ def prepare_case(args, seed):
 
 def run_batch_probe(prepared, steps, batch_size, early_stopping, seed):
     torch.manual_seed(seed)
-    query_mol = prepared["query_mol"]
-    query_indices = prepared["query_indices"]
-    init_coords = prepared["init_coords"]
-    pocket_coords = prepared["pocket_coords"]
-    query_features = prepared["query_features"]
-    pocket_features = prepared["pocket_features"]
-    intra_mask = prepared["intra_mask"]
+    device = prepared["init_coords"].device
+    track_cuda_mem = device.type == "cuda" and torch.cuda.is_available()
+    if track_cuda_mem:
+        torch.cuda.reset_peak_memory_stats(device)
 
-    n_poses = init_coords.shape[0]
-    batch_ranges = []
-    models = []
-    opts = []
-    best_losses = []
-    patience_counts = []
-    converged = []
-
-    for start_idx in range(0, n_poses, batch_size):
-        end_idx = min(start_idx + batch_size, n_poses)
-        batch_ranges.append((start_idx, end_idx))
-        local_models = []
-        local_opts = []
-        for i in range(start_idx, end_idx):
-            model = LigandKinematics(
-                query_mol,
-                query_indices,
-                init_coords[i].clone(),
-                init_coords.device,
-                freeze_mcs=True,
-            )
-            opt = torch.optim.Adam(model.parameters(), lr=0.05)
-            local_models.append(model)
-            local_opts.append(opt)
-        models.append(local_models)
-        opts.append(local_opts)
-        best_losses.append([float("inf")] * (end_idx - start_idx))
-        patience_counts.append([0] * (end_idx - start_idx))
-        converged.append([False] * (end_idx - start_idx))
-
-    per_pose_steps = [0] * n_poses
     t0 = time.perf_counter()
-    for _ in range(steps):
-        active_total = 0
-        for b, (start_idx, _) in enumerate(batch_ranges):
-            for i, (model, opt) in enumerate(zip(models[b], opts[b])):
-                if early_stopping and converged[b][i]:
-                    continue
-                active_total += 1
-                per_pose_steps[start_idx + i] += 1
-                opt.zero_grad()
-                coords = model()
-                loss = vina_scoring(
-                    coords.unsqueeze(0),
-                    pocket_coords,
-                    query_features,
-                    pocket_features,
-                    None,
-                    "vina",
-                    intramolecular_mask=intra_mask,
-                )
-                loss = loss.sum()
-                loss.backward()
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-                opt.step()
-
-                if early_stopping:
-                    loss_val = loss.item()
-                    if loss_val < best_losses[b][i] - 1e-5:
-                        best_losses[b][i] = loss_val
-                        patience_counts[b][i] = 0
-                    else:
-                        patience_counts[b][i] += 1
-                    if patience_counts[b][i] >= 30:
-                        converged[b][i] = True
-
-        if early_stopping and active_total == 0:
-            break
-
+    _, stats = optimize_torsions_vina(
+        mol=prepared["query_mol"],
+        ref_indices=prepared["query_indices"],
+        init_coords=prepared["init_coords"],
+        pocket_coords=prepared["pocket_coords"],
+        query_features=prepared["query_features"],
+        pocket_features=prepared["pocket_features"],
+        device=device,
+        num_steps=steps,
+        lr=0.05,
+        freeze_mcs=True,
+        num_rotatable_bonds=None,
+        weight_preset="vina",
+        batch_size=batch_size,
+        optimizer="adam",
+        early_stopping=early_stopping,
+        patience=30,
+        min_delta=1e-5,
+        return_stats=True,
+    )
     total = time.perf_counter() - t0
+    peak_allocated_mb = None
+    peak_reserved_mb = None
+    if track_cuda_mem:
+        peak_allocated_mb = torch.cuda.max_memory_allocated(device) / (1024 ** 2)
+        peak_reserved_mb = torch.cuda.max_memory_reserved(device) / (1024 ** 2)
     return {
         "total": total,
-        "avg_steps": sum(per_pose_steps) / len(per_pose_steps),
-        "min_steps": min(per_pose_steps),
-        "max_steps": max(per_pose_steps),
-        "n_poses": n_poses,
+        "avg_steps": stats["avg_steps"],
+        "min_steps": stats["min_steps"],
+        "max_steps": stats["max_steps"],
+        "n_poses": stats["n_poses"],
+        "peak_allocated_mb": peak_allocated_mb,
+        "peak_reserved_mb": peak_reserved_mb,
     }
 
 
@@ -238,7 +195,16 @@ def main():
     args = parser.parse_args()
 
     configs = [(batch_size, early) for batch_size in args.batch_sizes for early in (False, True)]
-    aggregate = {cfg: {"total": [], "avg_steps": [], "n_poses": []} for cfg in configs}
+    aggregate = {
+        cfg: {
+            "total": [],
+            "avg_steps": [],
+            "n_poses": [],
+            "peak_allocated_mb": [],
+            "peak_reserved_mb": [],
+        }
+        for cfg in configs
+    }
     seed_meta = []
 
     for seed in args.seeds:
@@ -256,6 +222,10 @@ def main():
             aggregate[cfg]["total"].append(result["total"])
             aggregate[cfg]["avg_steps"].append(result["avg_steps"])
             aggregate[cfg]["n_poses"].append(result["n_poses"])
+            if result["peak_allocated_mb"] is not None:
+                aggregate[cfg]["peak_allocated_mb"].append(result["peak_allocated_mb"])
+            if result["peak_reserved_mb"] is not None:
+                aggregate[cfg]["peak_reserved_mb"].append(result["peak_reserved_mb"])
 
     print("Benchmark case")
     for item in seed_meta:
@@ -264,17 +234,24 @@ def main():
             f"heavy_atoms={item['heavy_atoms']}"
         )
 
-    print("\n| Batch size | Early stopping | Total time mean | Total time std | Avg steps mean | Avg steps std | Poses mean | Time per pose |")
-    print("|---|---:|---:|---:|---:|---:|---:|---:|")
+    print("\n| Batch size | Early stopping | Total time mean | Total time std | Avg steps mean | Avg steps std | Poses mean | Time per pose | Peak alloc | Peak reserved |")
+    print("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
     for cfg in configs:
         total = aggregate[cfg]["total"]
         avg_steps = aggregate[cfg]["avg_steps"]
         poses = aggregate[cfg]["n_poses"]
+        if aggregate[cfg]["peak_allocated_mb"]:
+            peak_alloc = f"{stats.mean(aggregate[cfg]['peak_allocated_mb']):.1f} MB"
+            peak_res = f"{stats.mean(aggregate[cfg]['peak_reserved_mb']):.1f} MB"
+        else:
+            peak_alloc = "n/a"
+            peak_res = "n/a"
         print(
             f"| {cfg[0]} | {'on' if cfg[1] else 'off'} | "
             f"{stats.mean(total):.3f} s | {stats.pstdev(total):.3f} s | "
             f"{stats.mean(avg_steps):.1f} | {stats.pstdev(avg_steps):.1f} | "
-            f"{stats.mean(poses):.1f} | {1000 * stats.mean(total) / stats.mean(poses):.2f} ms |"
+            f"{stats.mean(poses):.1f} | {1000 * stats.mean(total) / stats.mean(poses):.2f} ms | "
+            f"{peak_alloc} | {peak_res} |"
         )
 
 
