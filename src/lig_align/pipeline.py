@@ -16,6 +16,7 @@ from rdkit.Geometry import Point3D
 from .aligner import LigandAligner
 from .scoring import compute_intramolecular_mask
 from .io import process_query_ligand
+from .molecular.mcs import find_mcs_with_positions, auto_select_mcs_mapping
 
 
 def run_pipeline(
@@ -27,7 +28,7 @@ def run_pipeline(
     num_confs: int = 1000,
     rmsd_threshold: float = 1.0,
     # MCS options
-    mcs_mode: Literal["single", "multi", "cross"] = "single",
+    mcs_mode: Literal["auto", "single", "multi", "cross"] = "auto",
     min_fragment_size: int = 5,
     max_fragments: int = 3,
     # Force field
@@ -66,7 +67,8 @@ def run_pipeline(
         rmsd_threshold: RMSD threshold for clustering in Å (default: 1.0)
 
         # MCS Options
-        mcs_mode: MCS alignment mode (default: "single")
+        mcs_mode: MCS alignment mode (default: "auto")
+            - "auto": choose single, multi, or cross based on the molecules
             - "single": 1:1 alignment, fastest
             - "multi": 1:N alignment for symmetric reference
             - "cross": N:M alignment for complex molecules
@@ -171,14 +173,30 @@ def run_pipeline(
         print(f"\nProcessing Query Ligand: {canonical_smiles}")
 
     # 1. MCS Search
-    if verbose:
-        print(f"MCS Mode: {mcs_mode}")
+    requested_mcs_mode = mcs_mode
 
-    if mcs_mode == "single":
+    if mcs_mode == "auto":
+        auto_choice = auto_select_mcs_mapping(
+            ref_mol,
+            query_mol,
+            min_atoms=3,
+            min_fragment_size=min_fragment_size,
+            max_fragments=max_fragments,
+        )
+        mcs_mode = auto_choice["mode"]
+        mapping = auto_choice["mapping"]
+        num_mcs_positions = len(auto_choice["mappings"])
+        if verbose:
+            print(f"MCS Mode: auto -> {mcs_mode}")
+            print(f"  Reason: {auto_choice['reason']}")
+    elif mcs_mode == "single":
+        if verbose:
+            print("MCS Mode: single")
         mapping = aligner.step2_find_mcs(ref_mol, query_mol, return_all_positions=False)
         num_mcs_positions = 1
     elif mcs_mode == "multi":
-        from .molecular.mcs import find_mcs_with_positions
+        if verbose:
+            print("MCS Mode: multi")
         mappings = find_mcs_with_positions(ref_mol, query_mol, return_all=True, min_atoms=3)
         num_mcs_positions = len(mappings)
         if verbose:
@@ -187,7 +205,8 @@ def run_pipeline(
         if verbose:
             print(f"Using position 1/{num_mcs_positions} for alignment")
     elif mcs_mode == "cross":
-        from .molecular.mcs import find_mcs_with_positions
+        if verbose:
+            print("MCS Mode: cross")
         mappings = find_mcs_with_positions(ref_mol, query_mol,
                                           cross_match=True,
                                           min_fragment_size=min_fragment_size,
@@ -214,6 +233,8 @@ def run_pipeline(
     query_mol.SetProp("MCS_Num_Atoms", str(num_mcs_atoms))
     query_mol.SetProp("MCS_Ref_Coverage", f"{ref_cov:.1f}%")
     query_mol.SetProp("MCS_Query_Coverage", f"{query_cov:.1f}%")
+    query_mol.SetProp("LigAlign_MCS_Mode", mcs_mode)
+    query_mol.SetProp("LigAlign_MCS_Mode_Requested", requested_mcs_mode)
 
     for ref_idx, query_idx in mapping:
         pos = ref_conf.GetAtomPosition(ref_idx)

@@ -46,7 +46,7 @@ query_ligand       Query SMILES or SDF path
 output_dir         Output directory
 num_confs          Number of conformers to generate
 rmsd_threshold     RMSD clustering threshold
-mcs_mode           single | multi | cross
+mcs_mode           auto | single | multi | cross
 optimize           Enable torsion optimization
 optimizer          adam | adamw | lbfgs
 opt_steps          Number of optimization steps

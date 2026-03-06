@@ -39,14 +39,19 @@ Purpose:
 
 Main options:
 
-- `mcs_mode`: `single` | `multi` | `cross`
+- `mcs_mode`: `auto` | `single` | `multi` | `cross`
 - `min_fragment_size`: integer, used in `cross` mode
 - `max_fragments`: integer, used in `cross` mode
 
 Behavior by option:
 
+- `auto`
+  - current default
+  - picks `multi` if the same largest MCS has multiple placements in the reference
+  - otherwise compares simple MCS against cross-matching and picks `cross` only if it increases total mapped atoms
+  - otherwise falls back to `single`
 - `single`
-  - default mode
+  - explicit conservative mode
   - finds one best mapping
   - best when the reference and query share a clear dominant common scaffold
 - `multi`
@@ -60,7 +65,8 @@ Behavior by option:
 
 Practical guidance:
 
-- use `single` for most routine runs
+- use `auto` for most routine runs
+- use `single` when you explicitly want the fastest, most conservative contiguous-core behavior
 - use `multi` when the reference has symmetry and multiple placements are chemically plausible
 - use `cross` only when a single contiguous MCS is too restrictive
 

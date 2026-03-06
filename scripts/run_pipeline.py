@@ -10,13 +10,14 @@ from rdkit.Geometry import Point3D
 from lig_align.aligner import LigandAligner
 from lig_align.scoring import compute_intramolecular_mask
 from lig_align.io import process_query_ligand
+from lig_align.molecular.mcs import auto_select_mcs_mapping
 
 def run_prediction(protein_pdb: str, ref_sdf: str, query_arg: str, out_dir: str,
                    num_confs: int = 1000, rmsd_threshold: float = 1.0,
                    mmff_opt: bool = True, optimize: bool = False,
                    freeze_mcs: bool = True, torsion_penalty: bool = False,
                    weight_preset: str = 'vina', opt_batch_size: int = 8,
-                   optimizer: str = 'adam', mcs_mode: str = 'single',
+                   optimizer: str = 'adam', mcs_mode: str = 'auto',
                    min_fragment_size: int = 5, max_fragments: int = 3):
     t0 = time.time()
     
@@ -41,12 +42,26 @@ def run_prediction(protein_pdb: str, ref_sdf: str, query_arg: str, out_dir: str,
     print(f"\nProcessing Query Ligand: {canonical_smiles}")
     
     # 1. MCS Search
-    print(f"MCS Mode: {mcs_mode}")
+    requested_mcs_mode = mcs_mode
     try:
-        if mcs_mode == 'single':
+        if mcs_mode == 'auto':
+            choice = auto_select_mcs_mapping(
+                ref_mol,
+                query_mol,
+                min_atoms=3,
+                min_fragment_size=min_fragment_size,
+                max_fragments=max_fragments,
+            )
+            mcs_mode = choice["mode"]
+            mapping = choice["mapping"]
+            print(f"MCS Mode: auto -> {mcs_mode}")
+            print(f"  Reason: {choice['reason']}")
+        elif mcs_mode == 'single':
+            print("MCS Mode: single")
             # Mode 1: Single position (1:1) - fastest
             mapping = aligner.step2_find_mcs(ref_mol, query_mol, return_all_positions=False)
         elif mcs_mode == 'multi':
+            print("MCS Mode: multi")
             # Mode 2: Multi-position (1:N) - find all positions
             mappings = aligner.step2_find_mcs(ref_mol, query_mol, return_all_positions=True)
             print(f"Found {len(mappings)} possible MCS alignment positions")
@@ -54,6 +69,7 @@ def run_prediction(protein_pdb: str, ref_sdf: str, query_arg: str, out_dir: str,
             mapping = mappings[0]
             print(f"Using position 1/{len(mappings)} for alignment")
         elif mcs_mode == 'cross':
+            print("MCS Mode: cross")
             # Mode 3: Cross-matching (N:M) - multiple fragments in both ref and query
             from lig_align.molecular.mcs import find_mcs_with_positions
             mappings = find_mcs_with_positions(ref_mol, query_mol,
@@ -65,7 +81,7 @@ def run_prediction(protein_pdb: str, ref_sdf: str, query_arg: str, out_dir: str,
             mapping = mappings[0]
             print(f"Using combination 1/{len(mappings)} for alignment")
         else:
-            raise ValueError(f"Invalid mcs_mode: {mcs_mode}. Must be 'single', 'multi', or 'cross'")
+            raise ValueError(f"Invalid mcs_mode: {mcs_mode}. Must be 'auto', 'single', 'multi', or 'cross'")
     except Exception as e:
         print(f"MCS Search Failed: {e}")
         return
@@ -83,6 +99,8 @@ def run_prediction(protein_pdb: str, ref_sdf: str, query_arg: str, out_dir: str,
     query_mol.SetProp("MCS_Num_Atoms", str(num_mcs_atoms))
     query_mol.SetProp("MCS_Ref_Coverage", f"{ref_cov:.1f}%")
     query_mol.SetProp("MCS_Query_Coverage", f"{query_cov:.1f}%")
+    query_mol.SetProp("LigAlign_MCS_Mode", mcs_mode)
+    query_mol.SetProp("LigAlign_MCS_Mode_Requested", requested_mcs_mode)
     
     for ref_idx, query_idx in mapping:
         pos = ref_conf.GetAtomPosition(ref_idx)
@@ -214,8 +232,8 @@ if __name__ == "__main__":
     parser.add_argument("--weight_preset", type=str, choices=["vina", "vina_lp", "vinardo"], default="vina", help="Preset dictionary for Vina functional weights")
 
     # MCS Mode Options
-    parser.add_argument("--mcs_mode", type=str, choices=["single", "multi", "cross"], default="single",
-                        help="MCS alignment mode: 'single' (1:1, fastest), 'multi' (1:N, symmetric ref), 'cross' (N:M, both symmetric) (default: single)")
+    parser.add_argument("--mcs_mode", type=str, choices=["auto", "single", "multi", "cross"], default="auto",
+                        help="MCS alignment mode: 'auto' (choose based on symmetry/fragmentation), 'single' (1:1, fastest), 'multi' (1:N, symmetric ref), 'cross' (N:M, both symmetric) (default: auto)")
     parser.add_argument("--min_fragment_size", type=int, default=5,
                         help="Minimum atoms per fragment for cross-matching mode (default: 5)")
     parser.add_argument("--max_fragments", type=int, default=3,

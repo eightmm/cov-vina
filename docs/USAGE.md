@@ -38,7 +38,7 @@ Common optional arguments:
 -o, --out_dir             Output directory
 -n, --num_confs           Number of conformers to generate
 --rmsd_threshold          RMSD threshold for clustering
---mcs_mode                single | multi | cross
+--mcs_mode                auto | single | multi | cross
 --optimize                Enable gradient optimization
 --opt_batch_size          Number of poses optimized together
 --optimizer               adam | adamw | lbfgs
@@ -72,6 +72,20 @@ uv run python scripts/run_pipeline.py \
   --optimizer lbfgs \
   --opt_batch_size 8
 ```
+
+### MCS Mode Guidance
+
+- `auto`
+  - recommended default
+  - chooses `multi` for symmetry-equivalent placements
+  - chooses `cross` only when multi-fragment matching increases total mapped atoms
+  - otherwise uses `single`
+- `single`
+  - use for the fastest and most conservative contiguous-core match
+- `multi`
+  - use when the reference is symmetric and you want all equivalent placements enumerated
+- `cross`
+  - use when one contiguous MCS is too restrictive and multiple fragments matter
 
 ### Query From SDF
 

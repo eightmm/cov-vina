@@ -11,7 +11,7 @@ All are unified under find_mcs_with_positions() with different parameters.
 
 from rdkit import Chem
 from rdkit.Chem import rdFMCS, RWMol
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Dict, Any
 import itertools
 
 
@@ -389,3 +389,79 @@ def find_mcs_with_positions(ref_mol: Chem.Mol,
             return all_mappings
         else:
             return [all_mappings[0]]
+
+
+def auto_select_mcs_mapping(ref_mol: Chem.Mol,
+                            query_mol: Chem.Mol,
+                            min_atoms: int = 3,
+                            min_fragment_size: int = 5,
+                            max_fragments: int = 3,
+                            allow_partial: bool = True) -> Dict[str, Any]:
+    """
+    Automatically choose between single, multi, and cross MCS modes.
+
+    Decision rule:
+    - If there are multiple simple placements for the same largest MCS, choose `multi`.
+    - Otherwise, if cross-matching produces a larger total mapping than simple MCS, choose `cross`.
+    - Otherwise, choose `single`.
+    """
+    simple_mappings = find_all_mcs_positions(ref_mol, query_mol, min_atoms=min_atoms)
+    if not simple_mappings:
+        raise ValueError("No MCS found between reference and query")
+
+    best_simple = simple_mappings[0]
+    best_simple_size = len(best_simple)
+
+    if len(simple_mappings) > 1:
+        return {
+            "mode": "multi",
+            "mapping": best_simple,
+            "mappings": simple_mappings,
+            "reason": f"found {len(simple_mappings)} symmetry-equivalent placements for the same MCS",
+            "stats": {
+                "simple_positions": len(simple_mappings),
+                "simple_size": best_simple_size,
+                "cross_size": None,
+                "cross_positions": 0,
+            },
+        }
+
+    cross_mappings = find_mcs_with_positions(
+        ref_mol,
+        query_mol,
+        cross_match=True,
+        min_atoms=min_atoms,
+        min_fragment_size=min_fragment_size,
+        max_fragments=max_fragments,
+        allow_partial=allow_partial,
+    )
+
+    best_cross = cross_mappings[0] if cross_mappings else None
+    best_cross_size = len(best_cross) if best_cross else 0
+
+    if best_cross and best_cross_size > best_simple_size:
+        return {
+            "mode": "cross",
+            "mapping": best_cross,
+            "mappings": cross_mappings,
+            "reason": f"multi-fragment cross-matching expanded the anchor from {best_simple_size} to {best_cross_size} atoms",
+            "stats": {
+                "simple_positions": len(simple_mappings),
+                "simple_size": best_simple_size,
+                "cross_size": best_cross_size,
+                "cross_positions": len(cross_mappings),
+            },
+        }
+
+    return {
+        "mode": "single",
+        "mapping": best_simple,
+        "mappings": [best_simple],
+        "reason": "found one dominant contiguous MCS without symmetry ambiguity",
+        "stats": {
+            "simple_positions": len(simple_mappings),
+            "simple_size": best_simple_size,
+            "cross_size": best_cross_size if best_cross else None,
+            "cross_positions": len(cross_mappings),
+        },
+    }
