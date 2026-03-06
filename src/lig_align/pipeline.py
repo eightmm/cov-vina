@@ -255,6 +255,9 @@ def run_pipeline(
     num_atoms = query_mol.GetNumAtoms()
     aligned_coords = torch.zeros((batch_size, num_atoms, 3))
 
+    mcs_query_indices = {query_idx for _, query_idx in mapping}
+    mmff_applied = False
+
     for j, cid in enumerate(rep_cids):
         conf = query_mol.GetConformer(cid)
 
@@ -264,14 +267,21 @@ def run_pipeline(
             conf.SetAtomPosition(query_idx, Point3D(pos.x, pos.y, pos.z))
 
         # Relax non-MCS atoms
-        if mmff_optimize:
+        if mmff_optimize and len(mcs_query_indices) < query_mol.GetNumAtoms():
             props = AllChem.MMFFGetMoleculeProperties(query_mol)
             if props:
                 ff = AllChem.MMFFGetMoleculeForceField(query_mol, props, confId=cid)
                 if ff:
                     for ref_idx, query_idx in mapping:
                         ff.AddFixedPoint(query_idx)
-                    ff.Minimize(maxIts=500)
+                    try:
+                        ff.Minimize(maxIts=500)
+                        mmff_applied = True
+                    except RuntimeError as exc:
+                        if verbose:
+                            print(f"Warning: MMFF relaxation failed for conformer {cid}: {exc}")
+        elif mmff_optimize and verbose:
+            print("Skipping MMFF relaxation because the MCS covers all query atoms.")
 
         aligned_coords[j] = torch.tensor(conf.GetPositions(), dtype=torch.float32)
 
@@ -279,7 +289,8 @@ def run_pipeline(
 
     # Save pipeline parameters to SDF
     query_mol.SetProp("LigAlign_Num_Confs_Generated", str(num_confs))
-    query_mol.SetProp("LigAlign_MMFF_Optimized", str(mmff_optimize))
+    query_mol.SetProp("LigAlign_MMFF_Requested", str(mmff_optimize))
+    query_mol.SetProp("LigAlign_MMFF_Optimized", str(mmff_applied))
 
     # 5. Extract features for Vina Scoring
     pocket_coords = torch.tensor(pocket_mol.GetConformer().GetPositions(), dtype=torch.float32, device=aligner.device)
@@ -298,6 +309,7 @@ def run_pipeline(
     scores = aligner.step4_vina_scoring(aligned_coords, pocket_coords, query_features,
                                        pocket_features, num_rotatable_bonds, weight_preset,
                                        intramolecular_mask=intra_mask)
+    initial_scores = scores.clone()
 
     # 7. Optional Gradient Optimization
     if optimize:
@@ -357,12 +369,12 @@ def run_pipeline(
     if top_k is None:
         out_sdf = os.path.join(output_dir, "predicted_poses_all.sdf")
         aligner.step5_final_selection(query_mol, rep_cids, aligned_coords, scores,
-                                     top_k=None, output_path=out_sdf)
+                                     initial_scores=initial_scores, top_k=None, output_path=out_sdf)
         num_saved = len(rep_cids)
     else:
         out_sdf = os.path.join(output_dir, f"predicted_pose_top{top_k}.sdf")
         aligner.step5_final_selection(query_mol, rep_cids, aligned_coords, scores,
-                                     top_k=top_k, output_path=out_sdf)
+                                     initial_scores=initial_scores, top_k=top_k, output_path=out_sdf)
         num_saved = min(top_k, len(rep_cids))
 
     t1 = time.time()

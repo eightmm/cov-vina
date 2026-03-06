@@ -7,6 +7,7 @@ def final_selection(mol: Chem.Mol,
                     representative_cids: List[int],
                     aligned_coords: torch.Tensor,
                     scores: torch.Tensor,
+                    initial_scores: torch.Tensor = None,
                     top_k: int = None,
                     output_path: str = "output.sdf") -> torch.Tensor:
     """
@@ -17,6 +18,7 @@ def final_selection(mol: Chem.Mol,
         representative_cids: List of conformer IDs
         aligned_coords: Aligned coordinates [N_poses, N_atoms, 3]
         scores: Vina scores [N_poses]
+        initial_scores: Optional pre-optimization scores aligned to the same pose order
         top_k: Number of top poses to save (None = save all)
         output_path: Output SDF file path
 
@@ -48,6 +50,7 @@ def final_selection(mol: Chem.Mol,
         idx_int = int(idx.item())
         orig_cid = representative_cids[idx_int]
         score = scores[idx_int].item()
+        initial_score = initial_scores[idx_int].item() if initial_scores is not None else None
 
         out_mol = Chem.Mol(mol)
         new_conf = Chem.Conformer(out_mol.GetNumAtoms())
@@ -64,6 +67,10 @@ def final_selection(mol: Chem.Mol,
 
         out_mol.SetProp("_Name", f"Conformer_{orig_cid}_Rank_{rank+1}")
         out_mol.SetProp("Vina_Score", f"{score:.4f}")
+        out_mol.SetProp("Vina_Score_Final", f"{score:.4f}")
+        if initial_score is not None:
+            out_mol.SetProp("Vina_Score_Initial", f"{initial_score:.4f}")
+            out_mol.SetProp("Vina_Score_Delta", f"{score - initial_score:.4f}")
         out_mol.SetProp("Rank", str(rank+1))
 
         writer.write(out_mol)

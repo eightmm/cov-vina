@@ -109,6 +109,7 @@ class LigandAligner:
                               representative_cids: List[int],
                               aligned_coords: torch.Tensor,
                               scores: torch.Tensor,
+                              initial_scores: torch.Tensor = None,
                               top_k: int = None,
                               output_path: str = "output.sdf"):
         """
@@ -117,7 +118,7 @@ class LigandAligner:
         Args:
             top_k: Number of top poses to save (None = save all)
         """
-        return final_selection(mol, representative_cids, aligned_coords, scores, top_k, output_path)
+        return final_selection(mol, representative_cids, aligned_coords, scores, initial_scores, top_k, output_path)
 
     def step6_refine_pose(self,
                           mol: Chem.Mol,
@@ -157,4 +158,3 @@ class LigandAligner:
                                       num_steps, lr, freeze_mcs, num_rotatable_bonds,
                                       weight_preset, batch_size, optimizer,
                                       early_stopping, patience, min_delta)
-

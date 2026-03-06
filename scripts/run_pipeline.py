@@ -122,6 +122,9 @@ def run_prediction(protein_pdb: str, ref_sdf: str, query_arg: str, out_dir: str,
     num_atoms = query_mol.GetNumAtoms()
     aligned_coords = torch.zeros((batch_size, num_atoms, 3))
     
+    mcs_query_indices = {query_idx for _, query_idx in mapping}
+    mmff_applied = False
+
     for j, cid in enumerate(rep_cids):
         conf = query_mol.GetConformer(cid)
         
@@ -131,14 +134,20 @@ def run_prediction(protein_pdb: str, ref_sdf: str, query_arg: str, out_dir: str,
             conf.SetAtomPosition(query_idx, Point3D(pos.x, pos.y, pos.z))
             
         # Relax non-MCS atoms
-        if mmff_opt:
+        if mmff_opt and len(mcs_query_indices) < query_mol.GetNumAtoms():
             props = AllChem.MMFFGetMoleculeProperties(query_mol)
             if props:
                 ff = AllChem.MMFFGetMoleculeForceField(query_mol, props, confId=cid)
                 if ff:
                     for ref_idx, query_idx in mapping:
                         ff.AddFixedPoint(query_idx)
-                    ff.Minimize(maxIts=500)
+                    try:
+                        ff.Minimize(maxIts=500)
+                        mmff_applied = True
+                    except RuntimeError as exc:
+                        print(f"Warning: MMFF relaxation failed for conformer {cid}: {exc}")
+        elif mmff_opt:
+            print("Skipping MMFF relaxation because the MCS covers all query atoms.")
                     
         aligned_coords[j] = torch.tensor(conf.GetPositions(), dtype=torch.float32)
         
@@ -146,7 +155,8 @@ def run_prediction(protein_pdb: str, ref_sdf: str, query_arg: str, out_dir: str,
     
     # Save Pipeline run parameters to SDF
     query_mol.SetProp("LigAlign_Num_Confs_Generated", str(num_confs))
-    query_mol.SetProp("LigAlign_MMFF_Optimized", str(mmff_opt))
+    query_mol.SetProp("LigAlign_MMFF_Requested", str(mmff_opt))
+    query_mol.SetProp("LigAlign_MMFF_Optimized", str(mmff_applied))
 
     # 5. Extract features for Vina Scoring
     pocket_coords = torch.tensor(pocket_mol.GetConformer().GetPositions(), dtype=torch.float32, device=aligner.device)
@@ -162,6 +172,7 @@ def run_prediction(protein_pdb: str, ref_sdf: str, query_arg: str, out_dir: str,
     print(f"Scoring conformations against protein pocket using '{weight_preset}' weights...")
     intra_mask = compute_intramolecular_mask(query_mol, aligner.device)
     scores = aligner.step4_vina_scoring(aligned_coords, pocket_coords, query_features, pocket_features, num_rotatable_bonds, weight_preset, intramolecular_mask=intra_mask)
+    initial_scores = scores.clone()
     
     if optimize:
         print(f"\n--- Running Gradient-Based Torsion Optimization on ALL {len(rep_cids)} Cluster Representatives ---")
@@ -205,10 +216,10 @@ def run_prediction(protein_pdb: str, ref_sdf: str, query_arg: str, out_dir: str,
     # Save all poses if optimized, otherwise top 3
     if optimize:
         out_sdf = os.path.join(out_dir, "predicted_poses_all.sdf")
-        aligner.step5_final_selection(query_mol, rep_cids, aligned_coords, scores, top_k=None, output_path=out_sdf)
+        aligner.step5_final_selection(query_mol, rep_cids, aligned_coords, scores, initial_scores=initial_scores, top_k=None, output_path=out_sdf)
     else:
         out_sdf = os.path.join(out_dir, "predicted_pose_top3.sdf")
-        aligner.step5_final_selection(query_mol, rep_cids, aligned_coords, scores, top_k=3, output_path=out_sdf)
+        aligner.step5_final_selection(query_mol, rep_cids, aligned_coords, scores, initial_scores=initial_scores, top_k=3, output_path=out_sdf)
     
     t1 = time.time()
     print(f"\n-> Prediction Completed successfully in {t1-t0:.2f}s!")
