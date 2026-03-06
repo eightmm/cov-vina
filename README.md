@@ -61,6 +61,7 @@ The repository includes a ready-to-run example set under `examples/10gs`:
 - `examples/10gs/10gs_pocket.pdb`: example protein pocket
 - `examples/10gs/10gs_ligand.sdf`: reference ligand used as the alignment anchor
 - `examples/10gs/predictions/acemetacin/predicted_poses_all.sdf`: optimized multi-pose example output
+- `examples/10gs/predictions/reference/reference_optimized.sdf`: optimized reference-ligand example output
 - `examples/10gs/visualizations/`: GIFs used in reports and method comparisons
 
 ## Notes On Output Metadata
