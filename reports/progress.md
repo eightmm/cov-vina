@@ -17,6 +17,14 @@ Architecture reference:
 - [MCS decision rule](../docs/ARCHITECTURE.md#mcs-decision-rule)
 - [Full architecture note](../docs/ARCHITECTURE.md)
 
+Quick flow:
+
+1. identify the shared MCS anchor between the reference ligand and the query ligand
+2. generate query conformers around that anchor and cluster them into representative poses
+3. transfer the query onto the reference anchor and apply constrained relaxation
+4. score each representative pose with Vina-style pocket scoring
+5. optimize torsions for the surviving poses and export the ranked results
+
 ## How It Works
 
 Current pipeline flow:
@@ -47,147 +55,6 @@ The current asset set is useful for four questions:
 4. How does behavior change as overlap increases from the query side and from the reference side?
 
 ## Main Results
-
-### Runtime And Batch Behavior
-
-This section answers two practical questions:
-
-1. which parts of the current pipeline actually dominate runtime
-2. whether batching and early stopping reduce optimization cost in practice
-
-Timing conditions for the stage-level table:
-
-- device: `CPU`
-- pocket: `examples/10gs/10gs_pocket.pdb`
-- reference: `examples/10gs/10gs_ligand.sdf`
-- conformer generation: `50`
-- optimization budget: `100` steps
-- relaxation: enabled when applicable
-
-Stage-level timing:
-
-| Molecule | Heavy atoms | Torsions | MCS atoms | Conformer + clustering | Relax | Query feature | Pocket feature | Optimization (100 steps) | Approx. total |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| Flurbiprofen | 14 | 1 | 10 | 0.301 s | 0.002 s | 0.002 s | 1.758 s | 0.380 s | 2.44 s |
-| Diclofenac | 19 | 2 | 10 | 0.310 s | 0.002 s | 0.003 s | 1.758 s | 0.496 s | 2.57 s |
-| Acemetacin | 26 | 4 | 10 | 0.700 s | 0.006 s | 0.004 s | 1.758 s | 0.264 s | 2.74 s |
-| Cyclohexylmethyl analog | 32 | 1 | 26 | 1.355 s | 0.003 s | 0.006 s | 1.758 s | 0.365 s | 3.50 s |
-
-Interpretation:
-
-- `MCS` and constrained relaxation are cheap in the current setup
-- the largest fixed cost is pocket feature construction at about `1.76 s` per run
-- conformer generation and clustering grows the most with molecule size and flexibility
-- optimization cost scales with `step` count, but not monotonically with heavy-atom count alone
-- this is why pocket feature caching is now the default direction for repeated runs on the same receptor
-- a same-process smoke test showed `10gs` pocket loading dropping from about `2.01 s` on first load to effectively `0 s` on cache hit
-
-Main takeaway:
-
-- for repeated runs on one receptor, the first optimization to apply is pocket caching, not MCS tuning
-
-Batch and early-stopping probe:
-
-`Acemetacin` was benchmarked over `5` seeds with `300` optimization steps. The representative-pose count varied by seed from `1` to `29`, with a mean of `20.8`.
-
-| Batch size | Early stopping | Total time mean | Total time std | Avg steps mean | Avg steps std | Representative poses mean | Time per pose |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| 1 | off | 23.214 s | 12.923 s | 300.0 | 0.0 | 20.8 | 1116.05 ms |
-| 1 | on | 9.992 s | 4.593 s | 164.4 | 2.9 | 20.8 | 480.40 ms |
-| 4 | off | 18.447 s | 8.581 s | 300.0 | 0.0 | 20.8 | 886.89 ms |
-| 4 | on | 9.972 s | 4.581 s | 164.4 | 2.9 | 20.8 | 479.43 ms |
-| 8 | off | 18.235 s | 8.413 s | 300.0 | 0.0 | 20.8 | 876.67 ms |
-| 8 | on | 9.957 s | 4.574 s | 164.4 | 2.9 | 20.8 | 478.69 ms |
-
-Interpretation:
-
-- with a longer `300`-step budget, early stopping reduced the average step count from `300` to about `164`
-- that translated to roughly a `57%` reduction in total runtime in this probe
-- increasing `batch_size` still did not materially reduce runtime in the current implementation
-- the main reason is that the optimizer still iterates pose-by-pose inside each batch, so this is workflow batching rather than a fully vectorized batched optimizer
-- heterogeneous batches with different molecules are not yet supported by the current API
-- `VRAM` was not measured here because CUDA was not available in the current environment
-- `scripts/benchmark_runtime.py` now reports peak allocated and reserved GPU memory automatically when run on a CUDA device
-- runtime variance across seeds is large because the representative-pose count changes substantially with seeded conformer generation
-
-Term clarification:
-
-- `Representative poses mean` is the average number of poses that survived Butina clustering and actually entered optimization
-- batch optimization only becomes useful after conformer generation and clustering leave multiple representative poses to optimize
-
-What this suggests:
-
-- early stopping is already useful in the current setup for longer runs
-- pocket feature caching matters more than changing `batch_size`
-- if batch efficiency is a priority, the optimization loop should move toward true tensorized multi-pose execution
-- early stopping is worth keeping, but it should always be evaluated together with pose-count variance across seeds
-
-Main takeaway:
-
-- keep early stopping on for longer optimization budgets, but do not expect `batch_size` alone to fix runtime until the optimizer becomes truly vectorized
-
-### GPU Batch Probe
-
-The first GPU probe below was run with `5` seeds, `100` optimization steps, and `batch_size` values of `1` and `8`.
-
-| Batch size | Early stopping | Total time mean | Total time std | Avg steps mean | Avg steps std | Representative poses mean | Time per pose | Peak alloc | Peak reserved |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| 1 | off | 7.675 s | 5.871 s | 100.0 | 0.0 | 11.0 | 697.73 ms | 19.4 MB | 24.0 MB |
-| 1 | on | 5.456 s | 4.135 s | 100.0 | 0.0 | 11.0 | 495.97 ms | 19.5 MB | 24.0 MB |
-| 8 | off | 1.337 s | 0.035 s | 100.0 | 0.0 | 11.0 | 121.51 ms | 29.2 MB | 42.0 MB |
-| 8 | on | 1.333 s | 0.030 s | 100.0 | 0.0 | 11.0 | 121.18 ms | 29.2 MB | 42.0 MB |
-
-Interpretation:
-
-- on GPU, `batch_size=8` reduced runtime by about `5.7x` relative to `batch_size=1`
-- pose-level cost dropped from about `698 ms` to `122 ms`
-- VRAM increased modestly from about `19 MB` allocated to about `29 MB` allocated
-- in this shorter `100`-step GPU probe, early stopping did not materially change the step count
-
-Main takeaway:
-
-- once multiple representative poses survive clustering, GPU batch optimization is clearly worthwhile
-
-### GPU Batch Scaling
-
-To characterize scaling more carefully, the follow-up GPU benchmark below used `3` seeds, `200` optimization steps, and batch sizes from `1` to `32`.
-
-Benchmark case:
-
-- device: `cuda`
-- query: `Acemetacin`
-- seeds: `0, 1, 2`
-- representative poses mean: `16.3`
-- torsions: `4`
-
-| Batch size | Early stopping | Total time mean | Total time std | Avg steps mean | Avg steps std | Representative poses mean | Time per pose | Peak alloc | Peak reserved |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| 1 | off | 14.442 s | 9.488 s | 200.0 | 0.0 | 16.3 | 884.22 ms | 19.5 MB | 24.0 MB |
-| 1 | on | 11.772 s | 8.102 s | 151.7 | 14.6 | 16.3 | 720.75 ms | 19.5 MB | 24.0 MB |
-| 2 | off | 7.772 s | 4.676 s | 200.0 | 0.0 | 16.3 | 475.86 ms | 21.3 MB | 26.7 MB |
-| 2 | on | 7.086 s | 4.657 s | 156.1 | 19.6 | 16.3 | 433.81 ms | 21.3 MB | 26.7 MB |
-| 4 | off | 4.262 s | 2.083 s | 200.0 | 0.0 | 16.3 | 260.91 ms | 24.9 MB | 30.7 MB |
-| 4 | on | 3.848 s | 2.332 s | 151.5 | 14.9 | 16.3 | 235.57 ms | 24.9 MB | 30.7 MB |
-| 8 | off | 2.494 s | 0.881 s | 200.0 | 0.0 | 16.3 | 152.70 ms | 32.4 MB | 48.0 MB |
-| 8 | on | 2.213 s | 1.193 s | 148.7 | 12.9 | 16.3 | 135.52 ms | 32.4 MB | 48.0 MB |
-| 16 | off | 1.652 s | 0.197 s | 200.0 | 0.0 | 16.3 | 101.16 ms | 46.7 MB | 61.3 MB |
-| 16 | on | 1.398 s | 0.568 s | 149.6 | 13.6 | 16.3 | 85.58 ms | 46.7 MB | 61.3 MB |
-| 32 | off | 1.066 s | 0.225 s | 200.0 | 0.0 | 16.3 | 65.26 ms | 61.3 MB | 70.7 MB |
-| 32 | on | 0.810 s | 0.149 s | 151.7 | 14.6 | 16.3 | 49.57 ms | 61.3 MB | 70.7 MB |
-
-Interpretation:
-
-- GPU batch scaling is now clear and monotonic for same-molecule multi-pose optimization
-- `batch_size=32` reduced runtime by about `13.6x` relative to `batch_size=1`
-- peak allocated VRAM rose from `19.5 MB` to `61.3 MB`, which is small relative to the observed speedup
-- early stopping remained useful across all batch sizes, typically reducing the mean step count from about `200` to about `150`
-- the current implementation is therefore compute-limited rather than VRAM-limited for this workload
-
-Operational decision:
-
-- the default `opt_batch_size` is now set to `128`
-- this is intended for the current same-molecule batched optimizer on GPU
-- users should reduce it manually when a query yields many representative poses or when working in tighter GPU-memory environments
 
 ### Representative Optimization Run
 
@@ -272,15 +139,101 @@ Interpretation:
 - this view isolates how much of the original reference scaffold is retained
 - keeping this set below roughly `80%` ref coverage avoids turning the comparison into an almost-native replay
 
-## What Looks Good Already
+## Visual Asset Summary
 
-- the reference-guided behavior is visually clear
-- fixed-core vs free-core comparison is easy to explain
-- splitting coverage into query-side and reference-side views makes the overlap story much easier to read
-- using `10gs`-derived analogs for the ref-focused set is more defensible than mixing in unrelated molecules
+| Asset | Query coverage | Ref coverage | Heavy atoms | What it shows |
+|---|---:|---:|---:|---|
+| Representative run | - | - | - | baseline optimization trajectory |
+| Reference-guided run | - | - | - | anchor-guided behavior with the native reference |
+| Fixed vs free MCS | varies | varies | varies | effect of keeping the MCS rigid during optimization |
+| Acemetacin | 38.5% | 30.3% | 26 | lower query-side overlap |
+| Diclofenac | 52.6% | 30.3% | 19 | mid query-side overlap |
+| Flurbiprofen | 71.4% | 30.3% | 14 | higher query-side overlap |
+| Cyclohexyl-plus-Ala analog | 74.1% | 60.6% | 27 | lower reference-side retention |
+| Pyridyl-plus-cyclohexyl analog | 78.1% | 75.8% | 32 | mid reference-side retention |
+| Cyclohexylmethyl analog | 81.2% | 78.8% | 32 | higher reference-side retention without becoming near-native replay |
 
-## What Should Improve Next
+## Runtime Summary
 
-1. evaluate more than the first `multi` or `cross` MCS candidate
-2. move the optimizer toward true tensorized multi-pose execution
-3. reduce the final slide set to a small canonical asset pack for repeated meetings
+### CPU Baseline
+
+CPU timing was used to identify the main fixed costs in the pipeline.
+
+Conditions:
+
+- device: `CPU`
+- pocket: `examples/10gs/10gs_pocket.pdb`
+- reference: `examples/10gs/10gs_ligand.sdf`
+- conformer generation: `50`
+- optimization budget: `100` steps
+- relaxation: enabled when applicable
+
+| Molecule | Heavy atoms | Torsions | MCS atoms | Conformer + clustering | Relax | Query feature | Pocket feature | Optimization (100 steps) | Approx. total |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Flurbiprofen | 14 | 1 | 10 | 0.301 s | 0.002 s | 0.002 s | 1.758 s | 0.380 s | 2.44 s |
+| Diclofenac | 19 | 2 | 10 | 0.310 s | 0.002 s | 0.003 s | 1.758 s | 0.496 s | 2.57 s |
+| Acemetacin | 26 | 4 | 10 | 0.700 s | 0.006 s | 0.004 s | 1.758 s | 0.264 s | 2.74 s |
+| Cyclohexylmethyl analog | 32 | 1 | 26 | 1.355 s | 0.003 s | 0.006 s | 1.758 s | 0.365 s | 3.50 s |
+
+Main takeaway:
+
+- `MCS` search and constrained relaxation are cheap
+- the largest fixed cost is pocket feature construction at about `1.76 s` per run
+- for repeated work on one receptor, pocket caching is the first runtime optimization to apply
+
+### GPU Batch Scaling
+
+The main runtime result is the GPU scaling behavior of the current same-molecule multi-pose optimizer.
+
+Conditions:
+
+- device: `cuda`
+- query: `Acemetacin`
+- seeds: `0, 1, 2`
+- optimization budget: `200` steps
+- representative poses mean: `16.3`
+- torsions: `4`
+
+| Batch size | Early stopping | Total time mean | Total time std | Avg steps mean | Avg steps std | Representative poses mean | Time per pose | Peak alloc | Peak reserved |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 1 | off | 14.442 s | 9.488 s | 200.0 | 0.0 | 16.3 | 884.22 ms | 19.5 MB | 24.0 MB |
+| 1 | on | 11.772 s | 8.102 s | 151.7 | 14.6 | 16.3 | 720.75 ms | 19.5 MB | 24.0 MB |
+| 2 | off | 7.772 s | 4.676 s | 200.0 | 0.0 | 16.3 | 475.86 ms | 21.3 MB | 26.7 MB |
+| 2 | on | 7.086 s | 4.657 s | 156.1 | 19.6 | 16.3 | 433.81 ms | 21.3 MB | 26.7 MB |
+| 4 | off | 4.262 s | 2.083 s | 200.0 | 0.0 | 16.3 | 260.91 ms | 24.9 MB | 30.7 MB |
+| 4 | on | 3.848 s | 2.332 s | 151.5 | 14.9 | 16.3 | 235.57 ms | 24.9 MB | 30.7 MB |
+| 8 | off | 2.494 s | 0.881 s | 200.0 | 0.0 | 16.3 | 152.70 ms | 32.4 MB | 48.0 MB |
+| 8 | on | 2.213 s | 1.193 s | 148.7 | 12.9 | 16.3 | 135.52 ms | 32.4 MB | 48.0 MB |
+| 16 | off | 1.652 s | 0.197 s | 200.0 | 0.0 | 16.3 | 101.16 ms | 46.7 MB | 61.3 MB |
+| 16 | on | 1.398 s | 0.568 s | 149.6 | 13.6 | 16.3 | 85.58 ms | 46.7 MB | 61.3 MB |
+| 32 | off | 1.066 s | 0.225 s | 200.0 | 0.0 | 16.3 | 65.26 ms | 61.3 MB | 70.7 MB |
+| 32 | on | 0.810 s | 0.149 s | 151.7 | 14.6 | 16.3 | 49.57 ms | 61.3 MB | 70.7 MB |
+
+Interpretation:
+
+- GPU batch scaling is now clear and monotonic for same-molecule multi-pose optimization
+- `batch_size=32` reduced runtime by about `13.6x` relative to `batch_size=1`
+- peak allocated VRAM rose from `19.5 MB` to `61.3 MB`, which is small relative to the observed speedup
+- early stopping remained useful across all batch sizes, typically reducing the mean step count from about `200` to about `150`
+- the current implementation is therefore compute-limited rather than VRAM-limited for this workload
+
+Operational decision:
+
+- the default `opt_batch_size` is now set to `128`
+- this is intended for the current same-molecule batched optimizer on GPU
+- users should reduce it manually when a query yields many representative poses or when working in tighter GPU-memory environments
+- this report directly validates scaling up to `32`; the `128` default is an operating choice rather than a measured optimum
+
+## Current Limitations
+
+- batching currently covers multiple poses of the same molecule, not mixed-molecule batches
+- `multi` and `cross` still enumerate alternatives but continue with the first candidate
+- runtime variance remains sensitive to how many representative poses survive clustering
+- the `opt_batch_size=128` default has not yet been benchmarked in this report beyond `32`
+
+## Recommended Improvements
+
+1. validate `opt_batch_size=64` and `128` on heavier ligands and larger representative-pose sets
+2. support mixed-molecule batching rather than only same-molecule multi-pose batches
+3. evaluate more than the first `multi` or `cross` MCS candidate
+4. reduce the final presentation asset pack to a smaller canonical set
