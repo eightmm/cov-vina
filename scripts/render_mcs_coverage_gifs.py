@@ -24,19 +24,19 @@ EXAMPLES = [
         "CC(C)c1ccc(cc1)[C@@H](C)C(=O)O",
     ),
     (
-        "ref_low_tolmetin",
-        "Tolmetin",
-        "Cc1ccc(cc1)C(=O)c1ccc(C)n1CC(=O)O",
+        "ref_lower_cyclohexyl_ala",
+        "Cyclohexyl-plus-Ala analog",
+        "[NH3+][C@@H](CCC(=O)N[C@@H](CSC1CCCCC1)C(=O)N[C@@H](C(=O)[O-])C)C(=O)[O-]",
     ),
     (
-        "ref_mid_fenbufen",
-        "Fenbufen",
-        "O=C(O)CCC(=O)c1ccc(c(c1)CC)c1ccccc1",
+        "ref_mid_pyridyl_cyclohexyl",
+        "Pyridyl-plus-cyclohexyl analog",
+        "[NH3+][C@@H](CCC(=O)N[C@@H](CSC1CCCCC1)C(=O)N[C@@H](C(=O)[O-])c1ccccn1)C(=O)[O-]",
     ),
     (
-        "ref_high_acemetacin",
-        "Acemetacin",
-        "COc1ccc2c(c1)c(C(=O)NCc1ccccc1)c(CC(=O)O)n2C",
+        "ref_high_cyclohexylmethyl",
+        "Cyclohexylmethyl analog",
+        "[NH3+][C@@H](CCC(=O)N[C@@H](CSC1CCCCC1)C(=O)N[C@@H](C(=O)[O-])c1ccccc1)C(=O)[O-]",
     ),
 ]
 
