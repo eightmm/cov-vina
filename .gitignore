@@ -1,0 +1,57 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+*.pyo
+*.pyd
+build/
+dist/
+wheels/
+*.egg-info
+*.egg
+
+# Virtual environments
+.venv
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# AI tooling
+.claude/
+.codex/
+.cursor/
+.windsurf/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+*.log
+
+# Output files
+output/
+output_*/
+*.sdf
+*.pdb
+
+# Images (except examples)
+*.png
+*.jpg
+*.gif
+!examples/**/*.png
+!examples/**/*.jpg
+!examples/**/*.gif
+
+# OS
+.DS_Store
+Thumbs.db
