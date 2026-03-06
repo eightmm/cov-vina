@@ -15,40 +15,286 @@ graph TD
     I --> J[Rescore and export poses]
 ```
 
+## End-To-End Inputs
+
+Required inputs:
+
+- protein pocket PDB
+- reference ligand SDF
+- query ligand as SMILES or SDF
+
+Primary entry points:
+
+- `scripts/run_pipeline.py`
+- `lig_align.run_pipeline()`
+
 ## Stage Details
 
 ### 1. MCS Search
 
-- Finds atom mappings between reference and query
-- Supports `single`, `multi`, and `cross` matching modes
-- Provides the anchor needed for downstream placement and optimization
+Purpose:
 
-### 2. Conformer Generation And Clustering
+- find atom-to-atom anchors between the reference ligand and the query ligand
+- define the rigid correspondence used by downstream placement and refinement
 
-- Generates a query conformer ensemble
-- Computes RMSD-based diversity without expensive all-pairs Kabsch alignment
-- Selects representative conformers before scoring and refinement
+Main options:
 
-### 3. Reference-Guided Placement
+- `mcs_mode`: `single` | `multi` | `cross`
+- `min_fragment_size`: integer, used in `cross` mode
+- `max_fragments`: integer, used in `cross` mode
 
-- Places mapped atoms onto the reference geometry
-- Optionally relaxes the full structure with MMFF while preserving anchors
-- Produces physically cleaner starting poses than raw coordinate transfer alone
+Behavior by option:
 
-### 4. Differentiable Scoring
+- `single`
+  - default mode
+  - finds one best mapping
+  - best when the reference and query share a clear dominant common scaffold
+- `multi`
+  - finds multiple placements for symmetric references
+  - current pipeline reports all candidate positions but uses the first mapping for continuation
+  - useful when the same motif can land in more than one symmetry-equivalent place
+- `cross`
+  - allows multiple fragments and cross-combinations between reference and query
+  - intended for more complex or fragmented common substructure cases
+  - currently reports all combinations and uses the first one for continuation
 
-- Computes Vina-like interaction terms in PyTorch
-- Supports `vina`, `vina_lp`, and `vinardo` presets
-- Enables both fast scoring and gradient-based optimization
+Practical guidance:
 
-### 5. Torsion Optimization
+- use `single` for most routine runs
+- use `multi` when the reference has symmetry and multiple placements are chemically plausible
+- use `cross` only when a single contiguous MCS is too restrictive
 
-- Builds a rotatable-bond kinematic tree
-- Updates torsion angles through backpropagation
-- Optimizes representative poses in batches on GPU
-- Can freeze or release MCS atoms depending on the experiment
+Outputs from this stage:
+
+- selected `mapping` list of `(ref_atom_idx, query_atom_idx)` pairs
+- MCS coverage statistics written onto the output molecule metadata
+
+### 2. Constraint Extraction
+
+Purpose:
+
+- copy exact reference coordinates for the mapped query atoms
+- build the coordinate constraints used during conformer generation and later placement
+
+Internal outputs:
+
+- `coordMap` for RDKit conformer generation
+- per-run metadata such as MCS size and heavy-atom coverage
+
+There are no public user-facing options here; this stage is driven by the result of Stage 1.
+
+### 3. Conformer Generation
+
+Purpose:
+
+- build an ensemble of 3D query conformers before scoring
+- bias the ensemble toward the reference core through the MCS coordinate map
+
+Main options:
+
+- `num_confs`: number of conformers to generate, default `1000`
+- `rmsd_threshold`: RMSD threshold for diversity filtering and clustering, default `1.0`
+
+Behavior:
+
+- RDKit generates query conformers with the MCS coordinate map as an initial geometric hint
+- larger `num_confs` improves coverage but costs more time
+- smaller `rmsd_threshold` keeps more diverse representatives
+- larger `rmsd_threshold` compresses the ensemble more aggressively
+
+Practical guidance:
+
+- `num_confs=1000`, `rmsd_threshold=1.0` is the current default and reasonable baseline
+- increase `num_confs` for flexible molecules or when best-pose quality is unstable
+- increase `rmsd_threshold` when too many near-duplicate representatives are being kept
+
+Outputs from this stage:
+
+- conformer ensemble stored in the query molecule
+- representative conformer IDs selected for downstream processing
+
+### 4. RMSD Clustering
+
+Purpose:
+
+- reduce the conformer ensemble to a smaller representative set before expensive scoring and optimization
+
+Main option:
+
+- `rmsd_threshold`
+
+Behavior:
+
+- clustering is driven by raw conformational diversity rather than a full all-pairs aligned RMSD workflow
+- this keeps the screening stage tractable while preserving representative geometry classes
+
+Tradeoff:
+
+- lower threshold -> more representatives, higher cost, potentially better coverage
+- higher threshold -> fewer representatives, lower cost, potentially more aggressive pruning
+
+### 5. Reference-Guided Coordinate Placement
+
+Purpose:
+
+- force the chosen MCS atoms onto the reference coordinates
+- optionally relax the non-MCS region to remove severe local strain
+
+Main option:
+
+- `mmff_optimize` in Python API
+- `--no_mmff` in CLI to disable relaxation
+
+Behavior:
+
+- mapped query atoms are placed exactly onto reference coordinates
+- if MMFF is enabled, MCS atoms are fixed and appendages are relaxed with MMFF94
+- if MMFF is disabled, the pipeline keeps the exact coordinate transfer without local force-field cleanup
+
+Practical guidance:
+
+- keep MMFF enabled for most runs
+- disable MMFF only when you want to inspect the raw anchor-transfer effect or debug placement issues
+
+Outputs from this stage:
+
+- tensor of aligned coordinates for each representative conformer
+
+### 6. Vina-Style Scoring
+
+Purpose:
+
+- evaluate all representative poses against the protein pocket with differentiable scoring terms
+
+Main options:
+
+- `weight_preset`: `vina` | `vina_lp` | `vinardo`
+- `torsion_penalty`: boolean
+
+Behavior by option:
+
+- `vina`
+  - default preset
+  - general-purpose baseline
+- `vina_lp`
+  - local-preference variant
+  - useful when comparing preset sensitivity
+- `vinardo`
+  - alternative scoring preset
+  - often worth trying when ranking behavior under standard Vina is unsatisfactory
+- `torsion_penalty=True`
+  - adds torsional entropy penalty based on rotatable bond count
+  - can discourage overly flexible poses
+
+Practical guidance:
+
+- start with `vina`
+- compare against `vinardo` when ranking quality is questionable
+- enable torsion penalty when flexible ligands are over-favored by raw interaction energy
+
+Outputs from this stage:
+
+- per-pose score tensor
+- best-pose ranking prior to optional optimization
+
+### 7. Torsion Optimization
+
+Purpose:
+
+- refine poses through gradient-based torsion updates rather than relying only on initial conformer placement
+
+Main options:
+
+- `optimize`: enable or disable this stage
+- `optimizer`: `adam` | `adamw` | `lbfgs`
+- `opt_steps`: optimization steps, default `100`
+- `opt_lr`: learning rate, default `0.05`
+- `opt_batch_size`: poses optimized together, default `8`
+- `freeze_mcs`: boolean, default `True`
+- CLI inverse flag: `--free_mcs`
+
+Behavior by option:
+
+- `optimize=False`
+  - pipeline skips refinement and directly ranks the initial aligned poses
+- `optimizer=adam`
+  - default choice
+  - good speed and robust convergence for routine use
+- `optimizer=adamw`
+  - similar behavior with weight decay style regularization
+  - useful when experimenting with stability on harder cases
+- `optimizer=lbfgs`
+  - slower but often stronger for final refinement
+  - better suited to smaller pose batches or higher-accuracy runs
+- `freeze_mcs=True`
+  - keeps anchor atoms rigid during optimization
+  - preserves the reference-driven alignment hypothesis
+- `freeze_mcs=False`
+  - allows the MCS itself to move
+  - useful for exploratory refinement, but weaker as a strict anchor-based workflow
+
+Batching behavior:
+
+- optimization is performed across representative poses in batches
+- `opt_batch_size` should be reduced if GPU memory becomes limiting
+- larger batches improve throughput when memory permits
+
+Practical guidance:
+
+- enable optimization for serious ranking runs
+- use `adam` first, then compare `lbfgs` for quality-focused experiments
+- keep `freeze_mcs=True` unless you explicitly want to relax the alignment anchor
+
+Outputs from this stage:
+
+- optimized coordinates
+- rescored pose energies
+- score deltas relative to the initial scoring pass
+
+### 8. Selection And Export
+
+Purpose:
+
+- write the final ranked poses to SDF and store run metadata
+
+Main options:
+
+- `save_all_poses`: optional override in Python API
+- `top_k`: optional override in Python API
+- `output_dir` / `out_dir`: destination path
+
+Default behavior:
+
+- if `optimize=False`, save top 3 poses
+- if `optimize=True`, save all optimized representative poses
+
+Output files:
+
+- non-optimized run: `predicted_pose_top3.sdf`
+- optimized run: `predicted_poses_all.sdf`
+
+Metadata written to outputs includes:
+
+- MCS coverage
+- number of generated conformers
+- whether MMFF relaxation was used
+- whether gradient optimization was used
+
+## Option Summary
+
+| Area | Options |
+|---|---|
+| MCS | `mcs_mode`, `min_fragment_size`, `max_fragments` |
+| Conformer generation | `num_confs`, `rmsd_threshold` |
+| Placement | `mmff_optimize` / `--no_mmff` |
+| Scoring | `weight_preset`, `torsion_penalty` |
+| Optimization | `optimize`, `optimizer`, `opt_steps`, `opt_lr`, `opt_batch_size`, `freeze_mcs` / `--free_mcs` |
+| Output | `output_dir`, `save_all_poses`, `top_k` |
+| System | `device`, `verbose` |
 
 ## Implementation Notes
 
 - Batched operations matter more than single-pose peak quality for throughput
 - MCS anchoring is the central design constraint of the current system
+- `multi` and `cross` modes currently enumerate multiple mappings but continue with the first candidate
+- scoring and optimization share the same feature representation and energy family, which keeps refinement behavior consistent with ranking
