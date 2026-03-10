@@ -61,11 +61,14 @@ The current benchmark set demonstrates four key capabilities:
 
 ## Main Results
 
-### Benchmark Systems
+### Optimization Trajectory Visualization
 
-All systems validated with vinyl-alanine (acrylamide warhead):
+All systems show gradient-based optimization with CB-S anchor fixed:
 
 **6LU7 - SARS-CoV-2 Main Protease:**
+
+![6LU7 optimization](../examples/6lu7/trajectory.gif)
+
 - Target: CYS145
 - Pocket: 101 atoms
 - Runtime: 1.73s
@@ -73,6 +76,9 @@ All systems validated with vinyl-alanine (acrylamide warhead):
 - Poses: 11
 
 **3POZ - Cathepsin K:**
+
+![3POZ optimization](../examples/3poz/trajectory.gif)
+
 - Target: CYS775
 - Pocket: 319 atoms
 - Runtime: 1.90s
@@ -80,6 +86,9 @@ All systems validated with vinyl-alanine (acrylamide warhead):
 - Poses: 9
 
 **1M17 - Papain:**
+
+![1M17 optimization](../examples/1m17/trajectory.gif)
+
 - Target: CYS751
 - Pocket: 330 atoms
 - Runtime: 2.15s
@@ -88,6 +97,9 @@ All systems validated with vinyl-alanine (acrylamide warhead):
 
 Interpretation:
 
+- CB (green) and SG (yellow) remain fixed throughout optimization
+- reactive atom explores conformational space while maintaining CB-S anchor
+- torsional degrees of freedom optimize under pocket scoring
 - consistent performance across different system sizes
 - runtime scales linearly with pocket size
 - all warheads detected correctly (acrylamide)
