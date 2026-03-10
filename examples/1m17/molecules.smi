@@ -1,6 +1,6 @@
 # Papain (1M17) test molecules
-# Target residue: CYS25
-# Reference: Covalent inhibitor
+# Target residue: CYS751
+# Reference: AQ4 (Erlotinib)
 
 # 1. Vinyl-alanine (acrylamide warhead)
 C=CC(=O)N[C@@H](C)C(=O)O	vinyl_alanine

@@ -1,6 +1,6 @@
 # Cathepsin K (3POZ) test molecules
-# Target residue: CYS25
-# Reference: E64 derivative (covalent inhibitor)
+# Target residue: CYS775
+# Reference: 03P (TAK-285, covalent inhibitor)
 
 # 1. Vinyl-alanine (acrylamide warhead)
 C=CC(=O)N[C@@H](C)C(=O)O	vinyl_alanine
