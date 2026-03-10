@@ -1,11 +1,72 @@
 # API Reference
 
-## High-Level Python API
-
-Main entry point:
+## Covalent Docking API
 
 ```python
-from lig_align import run_pipeline
+from cov_vina import run_covalent_pipeline
+
+results = run_covalent_pipeline(
+    protein_pdb="pocket.pdb",
+    query_ligand="C=CC(=O)Nc1ccccc1",  # must contain a reactive warhead
+    reactive_residue="CYS145",          # or None for auto-detect
+    output_dir="output",
+    num_confs=1000,
+    optimize=True,
+    optimizer="lbfgs",
+)
+```
+
+Return keys:
+
+```python
+{
+    "output_file": "output/covalent_pose_top3.sdf",
+    "num_poses": 3,
+    "best_score": -5.2,
+    "runtime": 12.3,
+    "num_conformers": 1000,
+    "num_representatives": 18,
+    "warhead_type": "acrylamide",
+    "anchor_residue": "CYS145",
+    "anchor_atom": "SG",
+    "canonical_smiles": "C=CC(=O)Nc1ccccc1",
+    "device": "cuda",
+}
+```
+
+### Covalent-Specific Parameters
+
+```text
+protein_pdb        Protein PDB path
+query_ligand       Query SMILES or SDF path (must have a warhead)
+reactive_residue   Residue spec, e.g. "CYS145", "CYS145:A", or None (auto-detect)
+freeze_anchor      Keep anchor atom fixed during optimization (default: True)
+```
+
+### Warhead Detection API
+
+```python
+from cov_vina.molecular.anchor import detect_warheads, find_reactive_residues
+from rdkit import Chem
+
+# Detect warheads on a ligand
+mol = Chem.MolFromSmiles("C=CC(=O)Nc1ccccc1")
+hits = detect_warheads(mol)
+# hits[0].warhead_type == "acrylamide"
+# hits[0].reactive_atom_idx == 0
+
+# Find reactive residues in a protein pocket
+pocket = Chem.MolFromPDBFile("pocket.pdb", sanitize=False, removeHs=True)
+anchors = find_reactive_residues(pocket)
+# anchors[0].residue_name == "CYS"
+# anchors[0].residue_num == 145
+# anchors[0].coord == array([x, y, z])
+```
+
+## MCS-Guided Docking API
+
+```python
+from cov_vina import run_pipeline
 
 results = run_pipeline(
     protein_pdb="protein.pdb",
@@ -20,7 +81,7 @@ results = run_pipeline(
 )
 ```
 
-Typical return keys:
+Return keys:
 
 ```python
 {
@@ -37,38 +98,45 @@ Typical return keys:
 }
 ```
 
-## Key Parameters
+## Common Parameters
 
 ```text
 protein_pdb        Protein PDB path
-ref_ligand         Reference SDF path
 query_ligand       Query SMILES or SDF path
 output_dir         Output directory
 num_confs          Number of conformers to generate
 rmsd_threshold     RMSD clustering threshold
-mcs_mode           auto | single | multi | cross
 optimize           Enable torsion optimization
 optimizer          adam | adamw | lbfgs
 opt_steps          Number of optimization steps
 opt_lr             Optimization learning rate
 opt_batch_size     Number of poses processed per optimization batch (default: 128)
-freeze_mcs         Keep MCS atoms fixed during optimization
 weight_preset      vina | vina_lp | vinardo
 torsion_penalty    Apply torsional entropy penalty (default: True)
 verbose            Print progress
 ```
 
-Current batching note:
+MCS-only parameters:
 
-- `opt_batch_size` currently batches multiple poses of the same molecule
-- it is not yet a fully vectorized mixed-molecule optimizer
+```text
+ref_ligand         Reference SDF path
+mcs_mode           auto | single | multi | cross
+freeze_mcs         Keep MCS atoms fixed during optimization
+```
+
+Covalent-only parameters:
+
+```text
+reactive_residue   Residue spec or None
+freeze_anchor      Keep anchor atom fixed during optimization
+```
 
 ## Low-Level API
 
 For stepwise control, use `LigandAligner`.
 
 ```python
-from lig_align import LigandAligner
+from cov_vina import LigandAligner
 
 aligner = LigandAligner(device="cuda")
 mapping = aligner.step2_find_mcs(ref_mol, query_mol)
@@ -93,7 +161,8 @@ optimized = aligner.step6_refine_pose(
 
 ## Script Inventory
 
-- `scripts/run_pipeline.py`: end-to-end pose generation
+- `scripts/run_covalent_pipeline.py`: covalent docking with warhead anchor
+- `scripts/run_pipeline.py`: MCS-based end-to-end pose generation
 - `scripts/optimize_pose.py`: optimize a single input pose
 - `scripts/vis_comparison_grid.py`: generate comparison panels across optimization settings
 - `scripts/vis_opt_gif.py`: make optimization animations

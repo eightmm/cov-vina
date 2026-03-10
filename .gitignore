@@ -42,6 +42,12 @@ test_outputs/
 output/
 output_*/
 
+# Temporary development files (keep in scripts/_archive/)
+refactor_*.py
+delete_*.py
+temp_*.py
+*_temp.py
+
 # Structure files: ignore by default, keep checked-in examples
 *.sdf
 *.pdb

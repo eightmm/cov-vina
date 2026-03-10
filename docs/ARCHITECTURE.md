@@ -2,6 +2,27 @@
 
 ## Pipeline Summary
 
+The system provides two pipelines that share scoring, optimization, and export stages.
+
+### Covalent Docking Pipeline
+
+```mermaid
+graph TD
+    A[Protein pocket + query ligand] --> B[Detect warhead on ligand]
+    B --> C[Find reactive residue in pocket]
+    C --> D[Place warhead at covalent bond distance]
+    D --> E[Conformer generation with anchor constraint]
+    E --> F[RMSD clustering]
+    F --> G[MMFF relaxation with fixed anchor]
+    G --> H[Vina scoring - anchor atom excluded]
+    H --> I{Optimize?}
+    I -->|No| J[Rank and export poses]
+    I -->|Yes| K[Torsion optimization - anchor frozen]
+    K --> L[Rescore and export poses]
+```
+
+### MCS-Guided Docking Pipeline
+
 ```mermaid
 graph TD
     A[Protein pocket + reference ligand + query ligand] --> B[MCS search]
@@ -37,7 +58,13 @@ Interpretation:
 
 ## End-To-End Inputs
 
-Required inputs:
+Covalent docking requires:
+
+- protein pocket PDB (must contain a reactive residue, e.g. CYS)
+- query ligand as SMILES or SDF (must contain a reactive warhead)
+- optional: reactive residue specifier (e.g. "CYS145")
+
+MCS docking requires:
 
 - protein pocket PDB
 - reference ligand SDF
@@ -45,10 +72,36 @@ Required inputs:
 
 Primary entry points:
 
-- `scripts/run_pipeline.py`
-- `lig_align.run_pipeline()`
+- `scripts/run_covalent_pipeline.py` / `cov_vina.run_covalent_pipeline()`
+- `scripts/run_pipeline.py` / `cov_vina.run_pipeline()`
 
-## Stage Details
+## Covalent Pipeline Stages
+
+### Warhead Detection
+
+The pipeline scans the query ligand against a registry of 22 SMARTS patterns covering common covalent warhead classes. Each pattern identifies the reactive atom that forms the covalent bond with the protein nucleophile.
+
+Source: `src/cov_vina/molecular/anchor.py` — `_WARHEAD_REGISTRY`, `detect_warheads()`
+
+### Reactive Residue Detection
+
+The pipeline scans PDB residue info to find supported reactive residues. Currently CYS (SG atom). The `REACTIVE_RESIDUES` dict is designed for extension (add SER/LYS/THR entries).
+
+For CYS, the approach vector is computed from CB→SG direction. The warhead atom is placed at `SG_coord + bond_vector * 1.82Å`.
+
+Source: `src/cov_vina/molecular/anchor.py` — `find_reactive_residues()`, `create_covalent_coordmap()`
+
+### Anchor Atom Exclusion from Scoring
+
+During Vina scoring, the covalent bond atom's features (VdW radius, hydrophobic, HBD, HBA) are zeroed out. This prevents the covalently bonded atom from contributing to intermolecular scoring terms, since it is forming a covalent bond rather than a non-covalent contact.
+
+Source: `src/cov_vina/pipeline.py` — `_mask_anchor_atom_features()`
+
+### Shared Stages
+
+Conformer generation, RMSD clustering, MMFF relaxation, Vina scoring, torsion optimization, and pose export are shared with the MCS pipeline. The only difference is which atoms are constrained (anchor atom vs MCS atom set).
+
+## MCS Pipeline Stages
 
 ### 1. MCS Search
 
@@ -315,6 +368,20 @@ Metadata written to outputs includes:
 - initial/final score and score delta
 
 ## Option Summary
+
+### Covalent Pipeline
+
+| Area | Options |
+|---|---|
+| Covalent anchor | `reactive_residue` |
+| Conformer generation | `num_confs`, `rmsd_threshold` |
+| Placement | `mmff_optimize` / `--no_mmff` |
+| Scoring | `weight_preset`, `torsion_penalty` |
+| Optimization | `optimize`, `optimizer`, `opt_steps`, `opt_lr`, `opt_batch_size`, `freeze_anchor` / `--free_anchor` |
+| Output | `output_dir`, `save_all_poses`, `top_k` |
+| System | `device`, `verbose` |
+
+### MCS Pipeline
 
 | Area | Options |
 |---|---|
