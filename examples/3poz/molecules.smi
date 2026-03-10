@@ -1,0 +1,12 @@
+# Cathepsin K (3POZ) test molecules
+# Target residue: CYS25
+# Reference: E64 derivative (covalent inhibitor)
+
+# 1. Vinyl-alanine (acrylamide warhead)
+C=CC(=O)N[C@@H](C)C(=O)O	vinyl_alanine
+
+# 2. Acrylamide-phenyl (Michael acceptor)
+C=CC(=O)Nc1ccccc1	acrylamide_phenyl
+
+# 3. Chloroacetamide (SN2 mechanism)
+ClCC(=O)Nc1ccccc1	chloroacetamide

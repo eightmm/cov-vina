@@ -1,0 +1,21 @@
+# SARS-CoV-2 Mpro (6LU7) test molecules
+# Target residue: CYS145
+# Reference: Vinyl-alanine (crystal ligand N3 derivative)
+
+# 1. Vinyl-alanine (acrylamide warhead)
+C=CC(=O)N[C@@H](C)C(=O)O	vinyl_alanine
+
+# 2. Acrylamide-phenyl (Michael acceptor)
+C=CC(=O)Nc1ccccc1	acrylamide_phenyl
+
+# 3. Chloroacetamide (SN2 mechanism)
+ClCC(=O)Nc1ccccc1	chloroacetamide
+
+# 4. Vinyl sulfonamide (Michael acceptor)
+C=CS(=O)(=O)Nc1ccccc1	vinyl_sulfonamide
+
+# 5. Bromoacetamide (SN2, larger leaving group)
+BrCC(=O)Nc1ccccc1	bromoacetamide
+
+# 6. Acrylamide-methoxy (substituted phenyl)
+C=CC(=O)Nc1ccc(OC)cc1	acrylamide_methoxy
