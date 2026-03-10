@@ -265,7 +265,7 @@ def main():
 
     # 1. Load protein pocket
     print(f"Loading protein pocket from {args.protein}...")
-    pocket_bundle = load_pocket_bundle(args.protein, device, compute_vina_features)
+    pocket_bundle = load_pocket_bundle(args.protein, device, lambda mol: compute_vina_features(mol, device))
 
     # 2. Process query ligand
     query_mol, canonical_smiles = process_query_ligand(args.query)

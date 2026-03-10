@@ -105,6 +105,30 @@ Interpretation:
 - all warheads detected correctly (acrylamide)
 - optimization converges to similar energy levels
 
+### Crystal Ligand Redocking
+
+Validation with 6LU7 crystal structure (vinyl-alanine):
+
+![6LU7 redocking](../examples/6lu7/redocking_viz.gif)
+
+**Protocol:**
+- Reference: Crystal ligand N3 (covalent adduct form)
+- Query: Vinyl-alanine (original unreacted form)
+- Conformers: 50
+- Optimization: 200 steps
+
+**Results:**
+- Runtime: 2.02s
+- Best score: -0.475 kcal/mol
+- Poses generated: 7
+- All poses converged at step 173
+
+**Interpretation:**
+- successful reconstruction of original vinyl ligand from adduct
+- redocking reproduces native-like binding mode
+- optimization converges quickly (~173 steps)
+- validates the adduct-first approach with real crystal structure
+
 ### Warhead Detection Validation
 
 Tested all 28 warhead types:
