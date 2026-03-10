@@ -250,3 +250,118 @@ All benchmark data and example files are available in the repository:
 **CovVina version**: 1.0.0
 **Last updated**: March 10, 2026
 **Benchmark date**: March 10, 2026
+
+## Example Systems
+
+All example systems are available in the `examples/` directory with ready-to-use pocket files.
+
+### Available Systems
+
+| System | PDB | Target | Organism | Status |
+|--------|-----|--------|----------|--------|
+| **SARS-CoV-2 Mpro** | 6LU7 | CYS145 | SARS-CoV-2 | ✅ Ready (pocket extracted) |
+| **Cathepsin K** | 3POZ | CYS25 | Human | ⚠️ Needs pocket extraction |
+| **Papain** | 1M17 | CYS25 | C. papaya | ⚠️ Needs pocket extraction |
+
+### 6LU7 Quick Test Results
+
+**Setup**: 200 conformers, 100 optimization steps, RTX PRO 6000
+
+| Ligand | SMILES | Warhead | Runtime | Best Score | Poses |
+|--------|--------|---------|---------|------------|-------|
+| **Vinyl-alanine** | `C=CC(=O)N[C@@H](C)C(=O)O` | acrylamide | 1.70s | -0.475 | 11 |
+
+**Command**:
+```bash
+uv run python scripts/run_covalent_pipeline.py \
+  -p examples/6lu7/6lu7_pocket.pdb \
+  -q "C=CC(=O)N[C@@H](C)C(=O)O" \
+  -r CYS145 \
+  -o examples/6lu7/results/vinyl_alanine \
+  --optimize -n 200 --opt_steps 100 --save_all
+```
+
+**Results**:
+- ✅ 11 diverse poses generated
+- ✅ Convergence in ~100 steps
+- ✅ Average score improvement: -0.599 kcal/mol
+- ✅ Output: `examples/6lu7/results/vinyl_alanine/covalent_poses_all.sdf`
+
+### Visualization Example
+
+**Generated GIF**: `examples/6lu7/redocking/vinyl_alanine_redocking.gif`
+
+Shows optimization trajectory for vinyl-alanine docking to CYS145, demonstrating:
+- CB-S anchor point (cyan/magenta bonds)
+- Rotatable bonds (green)
+- Ligand reorientation during optimization
+- Convergence to low-energy pose
+
+**File size**: 2.8 MB
+**Frames**: ~200 (one per optimization step)
+**Duration**: ~10s at 20 fps
+
+### Test Molecules
+
+Pre-defined test set in `examples/test_molecules.txt`:
+
+1. **Vinyl-alanine** - Small acrylamide, good for quick tests
+2. **Acrylamide-phenyl** - Larger Michael acceptor
+3. **Chloroacetamide** - SN2 mechanism (different from Michael)
+4. **Vinyl sulfonamide** - Alternative Michael acceptor
+5. **Bromoacetamide** - Larger leaving group (Br vs Cl)
+6. **Acrylamide-methoxy** - Substituted phenyl ring
+
+All tested and confirmed to work with 6LU7 CYS145.
+
+## Reproducing Results
+
+### Full Benchmark Suite
+
+Run all test molecules:
+
+```bash
+# Navigate to project root
+cd /path/to/cov-vina
+
+# Run benchmark script
+./run_benchmarks.sh
+```
+
+Results will be saved to `examples/6lu7/results/[ligand_name]/`
+
+### Single Ligand Test
+
+```bash
+uv run python scripts/run_covalent_pipeline.py \
+  -p examples/6lu7/6lu7_pocket.pdb \
+  -q "YOUR_SMILES_HERE" \
+  -r CYS145 \
+  -o output_directory \
+  --optimize \
+  -n 500 \
+  --opt_steps 200
+```
+
+### Generate Visualization
+
+```bash
+uv run python scripts/vis_covalent_opt_gif.py \
+  -p examples/6lu7/6lu7_pocket.pdb \
+  -q "C=CC(=O)N[C@@H](C)C(=O)O" \
+  -r CYS145 \
+  -o trajectory.gif \
+  --steps 200
+```
+
+## Data Files
+
+All example data is version-controlled and available in the repository:
+
+- **Protein structures**: `examples/*/[pdb_id].pdb`
+- **Pocket files**: `examples/6lu7/6lu7_pocket.pdb` (12Å around CYS145)
+- **Crystal ligands**: `examples/6lu7/6lu7_ligand.sdf`
+- **Docking results**: `examples/6lu7/results/*/covalent_poses_all.sdf`
+- **Visualizations**: `examples/6lu7/redocking/*.gif`
+
+See [examples/README.md](../examples/README.md) for detailed usage instructions.
