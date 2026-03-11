@@ -14,9 +14,10 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-s", "--sdf", required=True, help="Input SDF file")
     parser.add_argument("-o", "--output", required=True, help="Output GIF file")
-    parser.add_argument("--title", default="Pose Visualization", help="Title")
+    parser.add_argument("-r", "--reference", help="Reference crystal PDB file")
     parser.add_argument("--dpi", type=int, default=100, help="Output DPI")
-    parser.add_argument("--frames", type=int, default=36, help="Number of frames")
+    parser.add_argument("--frames", type=int, default=72, help="Number of frames")
+    parser.add_argument("--fps", type=int, default=15, help="Frames per second")
 
     args = parser.parse_args()
 
@@ -47,6 +48,19 @@ def main():
     conf = mol.GetConformer()
     coords = np.array([list(conf.GetAtomPosition(i)) for i in range(mol.GetNumAtoms())])
 
+    # Load reference crystal if provided
+    crystal_coords = None
+    crystal_bonds = None
+    if args.reference:
+        crystal = Chem.MolFromPDBFile(args.reference, removeHs=False)
+        if crystal:
+            print(f"Loaded reference crystal with {crystal.GetNumAtoms()} atoms")
+            crystal_conf = crystal.GetConformer()
+            crystal_coords = np.array([list(crystal_conf.GetAtomPosition(i)) for i in range(crystal.GetNumAtoms())])
+            crystal_bonds = [(b.GetBeginAtomIdx(), b.GetEndAtomIdx()) for b in crystal.GetBonds()]
+        else:
+            print("Warning: Could not load reference crystal")
+
     # Identify special atoms (last 2 are CB and S)
     num_atoms = mol.GetNumAtoms()
     cb_idx = num_atoms - 2
@@ -67,6 +81,19 @@ def main():
         # Rotation angle
         angle = frame * (360 / args.frames)
         ax.view_init(elev=20, azim=angle)
+
+        # Plot crystal structure first (if available)
+        if crystal_coords is not None and crystal_bonds is not None:
+            # Plot crystal bonds (thin green lines)
+            for i, j in crystal_bonds:
+                xs = [crystal_coords[i, 0], crystal_coords[j, 0]]
+                ys = [crystal_coords[i, 1], crystal_coords[j, 1]]
+                zs = [crystal_coords[i, 2], crystal_coords[j, 2]]
+                ax.plot(xs, ys, zs, color='#00FF00', linewidth=1, alpha=0.3)
+
+            # Plot crystal atoms (small green spheres)
+            ax.scatter(crystal_coords[:, 0], crystal_coords[:, 1], crystal_coords[:, 2],
+                      c='#00FF00', s=40, alpha=0.3, label='Crystal', zorder=1)
 
         # Plot bonds
         for i, j in bonds:
@@ -130,26 +157,25 @@ def main():
         ax.set_ylim(mid_y - max_range, mid_y + max_range)
         ax.set_zlim(mid_z - max_range, mid_z + max_range)
 
-        ax.set_xlabel('X (Å)', fontsize=11, fontweight='bold')
-        ax.set_ylabel('Y (Å)', fontsize=11, fontweight='bold')
-        ax.set_zlabel('Z (Å)', fontsize=11, fontweight='bold')
+        # Remove axis labels for cleaner look
+        ax.set_xlabel('')
+        ax.set_ylabel('')
+        ax.set_zlabel('')
+        ax.set_xticklabels([])
+        ax.set_yticklabels([])
+        ax.set_zticklabels([])
 
-        # Title with info
-        title = f'{args.title}\\n'
-        title += f'Rank {rank_str} | Score: {score:.3f} kcal/mol | Warhead: {warhead}'
-        ax.set_title(title, fontsize=13, fontweight='bold', pad=20)
-
-        # Legend
-        if frame == 0:  # Only show legend on first frame
-            ax.legend(loc='upper right', fontsize=10)
-
-        ax.grid(True, alpha=0.2)
+        ax.grid(False)
+        ax.set_facecolor('white')
+        ax.xaxis.pane.fill = False
+        ax.yaxis.pane.fill = False
+        ax.zaxis.pane.fill = False
 
         return ax,
 
-    print(f"Generating {args.frames}-frame GIF...")
-    ani = FuncAnimation(fig, update, frames=args.frames, interval=100, blit=False)
-    ani.save(args.output, writer=PillowWriter(fps=10), dpi=args.dpi)
+    print(f"Generating {args.frames}-frame GIF at {args.fps} fps...")
+    ani = FuncAnimation(fig, update, frames=args.frames, interval=1000//args.fps, blit=False)
+    ani.save(args.output, writer=PillowWriter(fps=args.fps), dpi=args.dpi)
 
     print(f"✓ Saved to {args.output}")
 

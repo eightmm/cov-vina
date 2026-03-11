@@ -134,15 +134,25 @@ Validation with 7AEH crystal structure (peptidomimetic α-ketoamide inhibitor):
 - Mean RMSD: 5.015 ± 0.892 Å
 - Success rate: MCS-based RMSD < 2.5 Å
 
-![Redocking comparison](../examples/7aeh/redocking_comparison.png)
-
-**Individual Pose Visualizations:**
+**Individual Pose Visualizations (with crystal overlay):**
 
 | Best Score (Rank 1) | Best RMSD (Rank 181) | Worst RMSD (Rank 169) |
 |:-------------------:|:--------------------:|:---------------------:|
 | ![Best Score](../examples/7aeh/best_score.gif) | ![Best RMSD](../examples/7aeh/best_rmsd.gif) | ![Worst RMSD](../examples/7aeh/worst_rmsd.gif) |
 | Score: -3.457 kcal/mol | RMSD: 1.935 Å | RMSD: 8.222 Å |
 | RMSD: 5.500 Å | Score: -2.193 kcal/mol | Score: -2.229 kcal/mol |
+
+Green wireframe = crystal structure overlay. 72 frames at 15 fps for smooth rotation.
+
+**Optimization Trajectories:**
+
+| Best Score (Rank 1) | Best RMSD (Rank 181) | Worst RMSD (Rank 169) |
+|:-------------------:|:--------------------:|:---------------------:|
+| ![Best Score Opt](../examples/7aeh/best_score_opt.gif) | ![Best RMSD Opt](../examples/7aeh/best_rmsd_opt.gif) | ![Worst RMSD Opt](../examples/7aeh/worst_rmsd_opt.gif) |
+| MMFF94 geometry optimization | MMFF94 geometry optimization | MMFF94 geometry optimization |
+| 100 steps, 20 fps | 100 steps, 20 fps | 100 steps, 20 fps |
+
+Shows covalent bond formation and energy minimization process.
 
 **Interpretation:**
 - **Best RMSD of 1.935 Å** demonstrates successful crystal structure reproduction
@@ -266,10 +276,12 @@ Current example structure per system:
 | 3POZ | `trajectory.gif` | optimization visualization |
 | 1M17 | `final_poses.sdf` | 13 ranked poses from docking |
 | 1M17 | `trajectory.gif` | optimization visualization |
-| 7AEH | `redocking_comparison.png` | RMSD analysis: success vs failure cases |
-| 7AEH | `best_score.gif` | Best score pose (Rank 1, -3.457 kcal/mol) |
-| 7AEH | `best_rmsd.gif` | Best RMSD pose (Rank 181, 1.935 Å) |
-| 7AEH | `worst_rmsd.gif` | Worst RMSD pose (Rank 169, 8.222 Å) |
+| 7AEH | `best_score.gif` | Best score pose with crystal overlay (Rank 1, 72 frames, 15 fps) |
+| 7AEH | `best_rmsd.gif` | Best RMSD pose with crystal overlay (Rank 181, 72 frames, 15 fps) |
+| 7AEH | `worst_rmsd.gif` | Worst RMSD pose with crystal overlay (Rank 169, 72 frames, 15 fps) |
+| 7AEH | `best_score_opt.gif` | Optimization trajectory for best score (100 steps, 20 fps) |
+| 7AEH | `best_rmsd_opt.gif` | Optimization trajectory for best RMSD (100 steps, 20 fps) |
+| 7AEH | `worst_rmsd_opt.gif` | Optimization trajectory for worst RMSD (100 steps, 20 fps) |
 | 7AEH | `reference_crystal.pdb` | R8H crystal ligand (36 atoms) |
 | 7AEH | `covalent_poses_all.sdf` | 417 redocked poses with full α-ketoamide |
 
