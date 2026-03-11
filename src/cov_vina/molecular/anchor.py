@@ -61,6 +61,7 @@ _WARHEAD_REGISTRY: list[tuple[str, int, str]] = [
 
     # --- Aldehyde (hemithioacetal) ---
     ("[CH1:1]=O",                      1, "aldehyde"),           # Aldehyde carbon
+    ("O=[C:1]C(=O)[N,n]",              1, "alpha_ketoamide"),    # α-ketoamide (glyoxal amide)
 
     # --- Isothiocyanate ---
     ("[C:1](=N)=S",                    1, "isothiocyanate"),     # Isothiocyanate carbon
@@ -152,6 +153,11 @@ WARHEAD_RESIDUE_COMPATIBILITY = {
     ("aldehyde", "CYS"): "GOOD",
     ("aldehyde", "SER"): "GOOD",
     ("aldehyde", "LYS"): "GOOD",
+
+    # α-ketoamide - similar to aldehyde, reversible hemithioacetal
+    ("alpha_ketoamide", "CYS"): "GOOD",
+    ("alpha_ketoamide", "SER"): "GOOD",
+    ("alpha_ketoamide", "LYS"): "GOOD",
 
     # Isothiocyanate - CYS/LYS/HIS
     ("isothiocyanate", "CYS"): "GOOD",
