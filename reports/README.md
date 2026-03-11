@@ -283,7 +283,6 @@ Current example structure per system:
 | 7AEH | `best_rmsd_opt.gif` | Optimization trajectory for best RMSD (100 steps, 20 fps) |
 | 7AEH | `worst_rmsd_opt.gif` | Optimization trajectory for worst RMSD (100 steps, 20 fps) |
 | 7AEH | `reference_crystal.pdb` | R8H crystal ligand (36 atoms) |
-| 7AEH | `covalent_poses_all.sdf` | 417 redocked poses with full α-ketoamide |
 
 All trajectory GIFs show:
 - CB (protein anchor) in green, fixed throughout

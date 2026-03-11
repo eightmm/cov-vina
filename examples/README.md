@@ -21,8 +21,8 @@ examples/{pdb_id}/
 | System | PDB | Target | Residue | Status | Description |
 |--------|-----|--------|---------|--------|-------------|
 | SARS-CoV-2 Mpro | 6LU7 | Main protease | CYS145 | ✅ Complete | Validated with vinyl-alanine |
-| Cathepsin K | 3POZ | Cysteine protease | CYS25 | ⚠️ Pocket needed | E64 derivative reference |
-| Papain | 1M17 | Cysteine protease | CYS25 | ⚠️ Pocket needed | Classic cysteine protease |
+| Cathepsin K | 3POZ | Cysteine protease | CYS775 | ✅ Complete | E64 derivative reference |
+| Papain | 1M17 | Cysteine protease | CYS751 | ✅ Complete | Classic cysteine protease |
 
 ## Quick Start
 
@@ -85,7 +85,8 @@ C=CC(=O)Nc1ccccc1           acrylamide_phenyl
 examples/6lu7/
 ├── final_poses.sdf       # 11 poses, sorted by score
 ├── trajectory.gif        # Optimization visualization
-└── reference.sdf         # Crystal ligand for comparison
+├── reference.sdf         # Crystal ligand for comparison
+└── reference_ideal.sdf   # Idealized reference structure
 ```
 
 ## Test Molecules
@@ -164,7 +165,7 @@ uv run python scripts/vis_covalent_opt_gif.py \
 - `6lu7.pdb`: Full structure (306 residues)
 - `6lu7_pocket.pdb`: 12Å cutoff around CYS145
 - `reference.sdf`: Crystal ligand N3
-- `reference_ideal.sdf`: Idealized reference structure
+- `reference_ideal.sdf`: Idealized reference structure (6lu7 only)
 - `molecules.smi`: 6 test molecules with different warheads
 - `trajectory.gif`: Optimization visualization (vinyl-alanine)
 - `final_poses.sdf`: Docking results (vinyl-alanine)
@@ -180,44 +181,34 @@ uv run python scripts/vis_covalent_opt_gif.py \
 - Target: Cathepsin K (cysteine protease)
 - PDB: 3POZ
 - Ligand: E64 derivative (epoxide warhead)
-- Active site: CYS25
+- Active site: CYS775 (literature CYS25)
 
 **Files:**
 - `3poz.pdb`: Full structure
+- `3poz_pocket.pdb`: Extracted pocket region
 - `molecules.smi`: 3 test molecules
+- `trajectory.gif`: Optimization visualization
+- `final_poses.sdf`: Docking results
+- `reference_crystal.pdb`: Crystal ligand for comparison
 
-**Status:** ⚠️ Needs pocket extraction
-
-**Usage:**
-```bash
-# Extract pocket first (need to implement)
-uv run python scripts/extract_pocket.py \
-  --pdb examples/3poz/3poz.pdb \
-  --residue CYS25 \
-  --output examples/3poz/3poz_pocket.pdb
-```
+**Status:** ✅ Complete
 
 ### 1M17 - Papain
 
 **Background:**
 - Target: Papain (classic cysteine protease)
 - PDB: 1M17
-- Active site: CYS25
+- Active site: CYS751 (literature CYS25)
 
 **Files:**
 - `1m17.pdb`: Full structure
+- `1m17_pocket.pdb`: Extracted pocket region
 - `molecules.smi`: 3 test molecules
+- `trajectory.gif`: Optimization visualization
+- `final_poses.sdf`: Docking results
+- `reference_crystal.pdb`: Crystal ligand for comparison
 
-**Status:** ⚠️ Needs pocket extraction
-
-**Usage:**
-```bash
-# Extract pocket first (need to implement)
-uv run python scripts/extract_pocket.py \
-  --pdb examples/1m17/1m17.pdb \
-  --residue CYS25 \
-  --output examples/1m17/1m17_pocket.pdb
-```
+**Status:** ✅ Complete
 
 ## Performance
 

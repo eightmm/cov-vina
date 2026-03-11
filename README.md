@@ -13,7 +13,7 @@ GPU-accelerated covalent docking with PyTorch-based Vina scoring and gradient op
 
 ```bash
 # Clone repository
-git clone https://github.com/your-org/cov-vina.git
+git clone https://github.com/eightmm/cov-vina.git
 cd cov-vina
 
 # Install with uv (recommended)
@@ -175,7 +175,7 @@ Anchor: CYS145:A atom SG (bond length 1.82 Å)
 Warhead: acrylamide (reactive atom idx 0)
 Generated 7 representative conformers
 Best score: -0.475 kcal/mol
-✓ Saved 7 poses to examples/6lu7/output/covalent_poses_all.sdf
+✓ Saved 7 poses to output/covalent_poses_all.sdf
 ```
 
 ## Supported Warheads
@@ -242,6 +242,8 @@ uv run python scripts/vis_covalent_opt_gif.py \
 
 **Hardware**: NVIDIA RTX PRO 6000 (98GB VRAM), AMD Ryzen 9 7950X
 
+**Single ligand** (first run, includes pocket loading):
+
 | Task | Time | GPU Usage |
 |------|------|-----------|
 | Warhead detection | <0.01s | CPU |
@@ -251,6 +253,10 @@ uv run python scripts/vis_covalent_opt_gif.py \
 | Gradient optimization (200 steps) | 0.9s | GPU |
 | **Total (full pipeline)** | **~2.0s** | Mixed |
 
+**Batch docking** (pocket cached, ~0.24s per ligand):
+- 10 ligands: 2.4s total
+- 100 ligands: 24s total
+
 ## Citation
 
 If you use CovVina in your research, please cite:
@@ -258,9 +264,9 @@ If you use CovVina in your research, please cite:
 ```bibtex
 @software{covvina2026,
   title = {CovVina: GPU-Accelerated Covalent Docking},
-  author = {Your Name},
+  author = {CovVina Contributors},
   year = {2026},
-  url = {https://github.com/your-org/cov-vina}
+  url = {https://github.com/eightmm/cov-vina}
 }
 ```
 
