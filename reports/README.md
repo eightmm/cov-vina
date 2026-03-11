@@ -109,7 +109,7 @@ Interpretation:
 
 Validation with 7AEH crystal structure (peptidomimetic aldehyde inhibitor):
 
-![7AEH redocking](../examples/7aeh/redocking_viz.gif)
+![7AEH redocking](../examples/7aeh/trajectory.gif)
 
 **System:**
 - PDB: 7AEH (SARS-CoV-2 Mpro)
@@ -251,8 +251,7 @@ Current example structure per system:
 | 3POZ | `trajectory.gif` | optimization visualization |
 | 1M17 | `final_poses.sdf` | 13 ranked poses from docking |
 | 1M17 | `trajectory.gif` | optimization visualization |
-| 7AEH | `redocking/covalent_poses_all.sdf` | 118 poses from crystal ligand redocking |
-| 7AEH | `redocking_viz.gif` | aldehyde peptidomimetic redocking |
+| 7AEH | `trajectory.gif` | aldehyde peptidomimetic redocking |
 | 7AEH | `reference_crystal.pdb` | R8H crystal ligand |
 
 All trajectory GIFs show:

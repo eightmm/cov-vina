@@ -249,11 +249,10 @@ def main():
         # Extract warhead type from SMILES for filename
         protein_dir = os.path.dirname(os.path.abspath(args.protein))
         smiles_clean = args.query.replace("=", "").replace("(", "").replace(")", "")[:20]
-        args.output = os.path.join(protein_dir, "visualizations", f"{smiles_clean}_covalent.gif")
-    elif not os.path.isabs(args.output):
-        # If relative path, put in protein_dir/visualizations/
-        protein_dir = os.path.dirname(os.path.abspath(args.protein))
-        args.output = os.path.join(protein_dir, "visualizations", args.output)
+        args.output = os.path.join(protein_dir, f"{smiles_clean}_covalent.gif")
+    else:
+        # Use output path as-is (absolute or relative to cwd)
+        args.output = os.path.abspath(args.output)
 
     # Create output directory
     os.makedirs(os.path.dirname(args.output), exist_ok=True)
