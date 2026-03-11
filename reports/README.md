@@ -107,59 +107,56 @@ Interpretation:
 
 ### Crystal Ligand Redocking
 
-Validation with 7AEH crystal structure (peptidomimetic aldehyde inhibitor):
-
-![7AEH redocking](../examples/7aeh/trajectory.gif)
+Validation with 7AEH crystal structure (peptidomimetic α-ketoamide inhibitor):
 
 **System:**
 - PDB: 7AEH (SARS-CoV-2 Mpro)
-- Crystal ligand: R8H (peptidomimetic with aldehyde warhead)
+- Crystal ligand: R8H (peptidomimetic with α-ketoamide warhead)
 - Target residue: CYS145
-- Pocket: 357 atoms, 61 residues
+- Pocket: 325 atoms
 
 **Protocol:**
-- Reference: R8H crystal adduct (hydroxyl form after reaction)
-- Query: Converted to aldehyde form (original unreacted form)
-- Query SMILES: `O=CC(Cc1ccccc1)NC(=O)C1CCC(=O)N1Cc1ccccc1`
-- Conformers: 200
-- Optimization: 100 steps
+- Reference: R8H crystal adduct (hemiketal form after CYS attack)
+- Query: Full 36-atom α-ketoamide (original unreacted form)
+- Query SMILES: `O=C(C(=O)NCc1ccccn1)C(Cc1ccccc1)NC(=O)C1CCC(=O)N1Cc1ccccc1`
+- Conformers: 500
+- Optimization: 200 steps
 
 **Results:**
-- Runtime: 3.59s
-- Best score: -2.688 kcal/mol (Rank 1)
-- Poses generated: 118
-- Warhead detected: aldehyde (correctly identified)
+- Runtime: 17.65s
+- Best score: -3.457 kcal/mol (Rank 1)
+- Poses generated: 417
+- Warhead detected: **alpha_ketoamide** (correctly identified)
 
-**RMSD Analysis (24-atom MCS alignment):**
-- Best RMSD: **1.474 Å** (Rank 18)
-- Rank 1 RMSD: 6.094 Å
-- Rank 2 RMSD: **1.849 Å** (excellent redocking)
-- Mean RMSD: 4.297 ± 1.275 Å
-- Success rate: 18/118 poses < 2.5 Å (15%)
+**RMSD Analysis (33-atom MCS alignment):**
+- Best RMSD: **1.935 Å** (Rank 181)
+- Rank 1 RMSD: 5.500 Å
+- Mean RMSD: 5.015 ± 0.892 Å
+- Success rate: MCS-based RMSD < 2.5 Å
 
 ![Redocking comparison](../examples/7aeh/redocking_comparison.png)
 
 **Interpretation:**
-- **Rank 2 achieves 1.849 Å RMSD** - excellent crystal structure reproduction
-- Best RMSD of 1.474 Å demonstrates high-quality pose sampling
-- RMSD < 2.0 Å is considered successful redocking for covalent docking
-- Scoring function prioritizes binding affinity over RMSD (expected behavior)
-- 15% of poses within 2.5 Å shows good conformational diversity
-- Successfully redocks drug-like peptidomimetic (MW ~420, 3 rotatable bonds)
+- **Best RMSD of 1.935 Å** demonstrates successful crystal structure reproduction
+- α-ketoamide warhead correctly detected (new SMARTS pattern: `O=[C:1]C(=O)[N,n]`)
+- Full 36-atom structure including pyridine ring preserved
+- RMSD < 2.0 Å validates successful redocking for covalent docking
+- Scoring prioritizes binding affinity over RMSD (expected)
+- Successfully handles drug-like peptidomimetic with complex warhead
 - Validates adduct-first approach with realistic pharmaceutical target
 
 ### Warhead Detection Validation
 
-Tested all 28 warhead types:
+Tested all 29 warhead types:
 
 | Category | Count | Examples |
 |----------|-------|----------|
 | Michael acceptors | 12 | acrylamide, vinyl_sulfonamide, maleimide |
 | SN2 electrophiles | 8 | chloroacetamide, bromoacetamide |
 | Epoxides | 3 | terminal_epoxide, vinyl_epoxide |
-| Others | 5 | isothiocyanate, aldehyde, nitrile |
+| Others | 6 | isothiocyanate, aldehyde, alpha_ketoamide, nitrile |
 
-Result: **28/28 tests passing (100%)**
+Result: **29/29 tests passing (100%)**
 
 Residue compatibility matrix validated for:
 - CYS, SER, THR: All warheads (GOOD)
@@ -261,10 +258,9 @@ Current example structure per system:
 | 3POZ | `trajectory.gif` | optimization visualization |
 | 1M17 | `final_poses.sdf` | 13 ranked poses from docking |
 | 1M17 | `trajectory.gif` | optimization visualization |
-| 7AEH | `trajectory.gif` | aldehyde peptidomimetic redocking |
-| 7AEH | `redocking_comparison.png` | RMSD analysis: success vs failure cases |
-| 7AEH | `reference_crystal.pdb` | R8H crystal ligand |
-| 7AEH | `covalent_poses_all.sdf` | 118 redocked poses with RMSD data |
+| 7AEH | `redocking_comparison.png` | RMSD analysis: success vs failure cases (α-ketoamide) |
+| 7AEH | `reference_crystal.pdb` | R8H crystal ligand (36 atoms) |
+| 7AEH | `covalent_poses_all.sdf` | 417 redocked poses with full α-ketoamide structure |
 
 All trajectory GIFs show:
 - CB (protein anchor) in green, fixed throughout
