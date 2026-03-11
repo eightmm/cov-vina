@@ -139,7 +139,15 @@ def run_batch_docking(
         print(f"✓ Pocket loaded in {cache_time:.2f}s")
         print(f"  Pocket atoms: {cached_pocket['pocket_bundle'].mol.GetNumAtoms()}")
         print(f"  Device: {cached_pocket['device']}")
-        print()
+
+    # GPU warmup to avoid overhead on first ligand
+    if len(ligand_list) > 1:  # Only worthwhile for batch
+        from .utils import warmup_gpu
+        warmup_time = warmup_gpu(cached_pocket['device'], verbose=verbose)
+        if verbose:
+            print()
+    else:
+        warmup_time = 0.0
 
     # Process each ligand
     results = []
