@@ -91,11 +91,11 @@ for r in results:
 ```
 
 **Performance:** Automatic pocket caching - no manual setup needed!
-- 1 ligand: ~1s total
-- 10 ligands: ~4s total (0.4s/ligand)
-- 100 ligands: ~40s total (0.4s/ligand)
+- 1 ligand: ~0.55s
+- 10 ligands: ~2.4s (0.24s/ligand)
+- 100 ligands: ~24s (0.24s/ligand)
 
-See [Batch Docking Guide](docs/BATCH_DOCKING.md) for command-line scripts and advanced usage.
+See [docs/USAGE.md](docs/USAGE.md) for CLI usage and detailed examples.
 
 ### Advanced Options (for run_covalent_pipeline)
 
