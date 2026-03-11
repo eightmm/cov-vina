@@ -136,6 +136,14 @@ Validation with 7AEH crystal structure (peptidomimetic α-ketoamide inhibitor):
 
 ![Redocking comparison](../examples/7aeh/redocking_comparison.png)
 
+**Individual Pose Visualizations:**
+
+| Best Score (Rank 1) | Best RMSD (Rank 181) | Worst RMSD (Rank 169) |
+|:-------------------:|:--------------------:|:---------------------:|
+| ![Best Score](../examples/7aeh/best_score.gif) | ![Best RMSD](../examples/7aeh/best_rmsd.gif) | ![Worst RMSD](../examples/7aeh/worst_rmsd.gif) |
+| Score: -3.457 kcal/mol | RMSD: 1.935 Å | RMSD: 8.222 Å |
+| RMSD: 5.500 Å | Score: -2.193 kcal/mol | Score: -2.229 kcal/mol |
+
 **Interpretation:**
 - **Best RMSD of 1.935 Å** demonstrates successful crystal structure reproduction
 - α-ketoamide warhead correctly detected (new SMARTS pattern: `O=[C:1]C(=O)[N,n]`)
@@ -258,9 +266,12 @@ Current example structure per system:
 | 3POZ | `trajectory.gif` | optimization visualization |
 | 1M17 | `final_poses.sdf` | 13 ranked poses from docking |
 | 1M17 | `trajectory.gif` | optimization visualization |
-| 7AEH | `redocking_comparison.png` | RMSD analysis: success vs failure cases (α-ketoamide) |
+| 7AEH | `redocking_comparison.png` | RMSD analysis: success vs failure cases |
+| 7AEH | `best_score.gif` | Best score pose (Rank 1, -3.457 kcal/mol) |
+| 7AEH | `best_rmsd.gif` | Best RMSD pose (Rank 181, 1.935 Å) |
+| 7AEH | `worst_rmsd.gif` | Worst RMSD pose (Rank 169, 8.222 Å) |
 | 7AEH | `reference_crystal.pdb` | R8H crystal ligand (36 atoms) |
-| 7AEH | `covalent_poses_all.sdf` | 417 redocked poses with full α-ketoamide structure |
+| 7AEH | `covalent_poses_all.sdf` | 417 redocked poses with full α-ketoamide |
 
 All trajectory GIFs show:
 - CB (protein anchor) in green, fixed throughout
