@@ -88,11 +88,6 @@ for r in results:
         print(f"{r['name']}: {r['best_score']:.3f} kcal/mol")
 ```
 
-**Performance:**
-- 1 ligand: ~0.55s
-- 10 ligands: ~2.4s (0.24s/ligand)
-- 100 ligands: ~24s (0.24s/ligand)
-
 See [docs/USAGE.md](docs/USAGE.md) for CLI usage and detailed examples.
 
 ### Advanced Options (for run_covalent_pipeline)
