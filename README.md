@@ -58,52 +58,46 @@ uv run python scripts/run_covalent_pipeline.py \
   --optimize
 ```
 
-### Batch Docking (Multiple Ligands)
-
-```bash
-# Prepare ligand library (.smi format)
-cat > ligands.smi <<EOF
-C=CC(=O)NC  acrylamide_1
-ClCC(=O)NCc1ccccc1  chloroacetamide_1
-O=CC(Cc1ccccc1)NC(=O)C1CCC(=O)N1Cc1ccccc1  peptidomimetic_1
-EOF
-
-# Run batch docking
-uv run python scripts/run_batch_docking.py \
-  -p examples/6lu7/6lu7_pocket.pdb \
-  -s ligands.smi \
-  -r CYS145 \
-  -o batch_results \
-  --num_confs 200 \
-  --optimize
-
-# Results: batch_results/ligand_name/final_poses.sdf
-```
-
-See [Batch Docking Guide](docs/BATCH_DOCKING.md) for advanced usage.
-
-### Python API
+### Python API (Simplified - 1 or many ligands!)
 
 ```python
-from cov_vina import run_covalent_pipeline
+from cov_vina import run_batch_docking
 
-# Basic usage
-results = run_covalent_pipeline(
+# Single ligand - same interface!
+results = run_batch_docking(
     protein_pdb="examples/6lu7/6lu7_pocket.pdb",
-    query_ligand="C=CC(=O)N[C@@H](C)C(=O)O",  # vinyl-alanine
+    ligands="C=CC(=O)NC",  # Just one SMILES
     reactive_residue="CYS145",
-    output_dir="output/",
-    optimize=True,
+)
+
+# Multiple ligands - same interface!
+results = run_batch_docking(
+    protein_pdb="examples/6lu7/6lu7_pocket.pdb",
+    ligands=["C=CC(=O)NC", "O=CCc1ccccc1"],  # List of SMILES
+    reactive_residue="CYS145",
+)
+
+# Or from .smi file - same interface!
+results = run_batch_docking(
+    protein_pdb="examples/6lu7/6lu7_pocket.pdb",
+    ligands="ligands.smi",  # File path
+    reactive_residue="CYS145",
 )
 
 # Check results
-print(f"Best score: {results['best_score']:.3f} kcal/mol")
-print(f"Warhead: {results['warhead_type']}")
-print(f"Anchor: {results['anchor_residue']}")
-print(f"Output: {results['output_file']}")
+for r in results:
+    if r['success']:
+        print(f"{r['name']}: {r['best_score']:.3f} kcal/mol")
 ```
 
-### Advanced Options
+**Performance:** Automatic pocket caching - no manual setup needed!
+- 1 ligand: ~1s total
+- 10 ligands: ~4s total (0.4s/ligand)
+- 100 ligands: ~40s total (0.4s/ligand)
+
+See [Batch Docking Guide](docs/BATCH_DOCKING.md) for command-line scripts and advanced usage.
+
+### Advanced Options (for run_covalent_pipeline)
 
 ```python
 results = run_covalent_pipeline(
