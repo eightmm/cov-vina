@@ -100,31 +100,64 @@ See [docs/USAGE.md](docs/USAGE.md) for CLI usage and detailed examples.
 ### Advanced Options (for run_covalent_pipeline)
 
 ```python
-results = run_covalent_pipeline(
-    protein_pdb="pocket.pdb",
-    query_ligand="SMILES",
-    reactive_residue="CYS145",  # or None for auto-detect
+from cov_vina import run_covalent_pipeline
+
+result = run_covalent_pipeline(
+    # Required
+    protein_pdb="pocket.pdb",           # Protein PDB file
+    query_ligand="SMILES_OR_SDF",       # SMILES string or SDF file path
+
+    # Anchor residue
+    reactive_residue="CYS145",          # e.g. "CYS145", "CYS145:A", or None (auto-detect)
+
+    # Pocket extraction
+    pocket_cutoff=12.0,                 # Pocket radius (Å) - 10Å for small, 15-20Å for peptides
 
     # Conformer generation
-    num_confs=1000,              # Number of conformers
-    rmsd_threshold=1.0,          # Butina clustering threshold (Å)
+    num_confs=1000,                     # Number of conformers to generate (default: 1000)
+    rmsd_threshold=1.0,                 # Butina clustering RMSD threshold (Å)
 
-    # Optimization
-    optimize=True,               # Enable gradient optimization
-    opt_steps=200,               # Optimization steps
-    opt_lr=0.05,                 # Learning rate
-    optimizer="adam",            # adam, adamw, or lbfgs
+    # Force field relaxation
+    mmff_optimize=True,                 # Apply MMFF94 relaxation (default: True)
+
+    # Gradient optimization
+    optimize=False,                     # Enable PyTorch gradient optimization (default: False)
+    optimizer="adam",                   # Optimizer: "adam", "adamw", "lbfgs" (default: "adam")
+    opt_steps=100,                      # Optimization steps (default: 100)
+    opt_lr=0.05,                        # Learning rate (default: 0.05 for adam/adamw, 1.0 for lbfgs)
+    opt_batch_size=128,                 # Batch size for GPU optimization (default: 128)
 
     # Scoring
-    weight_preset="vina",        # vina, vinardo, or vina_lp
+    weight_preset="vina",               # Vina weights: "vina", "vinardo", "vina_lp" (default: "vina")
+    torsion_penalty=True,               # Include torsional entropy penalty (default: True)
 
     # Output
-    output_dir="output/",
-    save_all_poses=False,        # Save all or top-k only
-    top_k=3,                     # Number of poses to save
-    verbose=True,
+    output_dir="output/",               # Output directory
+    save_all_poses=None,                # Save all poses (True) or top-k (False/None)
+    top_k=None,                         # Number of top poses to save (None = save all)
+
+    # Runtime
+    device=None,                        # "cuda", "cpu", or None (auto-detect)
+    verbose=True,                       # Print progress messages (default: True)
 )
+
+# Result dictionary
+print(f"Output: {result['output_file']}")
+print(f"Poses: {result['num_poses']}")
+print(f"Best score: {result['best_score']:.3f} kcal/mol")
+print(f"Warhead: {result['warhead_type']}")
+print(f"Anchor: {result['anchor_residue']}")
+print(f"Runtime: {result['runtime']:.2f}s")
 ```
+
+**Key Parameters:**
+
+- **pocket_cutoff**: 12Å default covers Vina's ~10Å scoring range. Use 10Å for small molecules, 15-20Å for large peptides.
+- **num_confs**: More conformers = better sampling but slower. 200-500 for quick tests, 1000+ for publication.
+- **optimizer**: Adam (fast, stable), LBFGS (slower, better convergence), AdamW (with weight decay).
+- **opt_batch_size**: GPU processes this many poses simultaneously. Reduce if GPU memory limited.
+- **torsion_penalty**: Vina's entropy term. Disable for interaction-only scoring (not recommended).
+- **Early stopping**: Automatically enabled (patience=30, min_delta=1e-5). Stops when no improvement.
 
 ## Example: SARS-CoV-2 Mpro
 
