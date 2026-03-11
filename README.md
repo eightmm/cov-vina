@@ -4,12 +4,10 @@ GPU-accelerated covalent docking with PyTorch-based Vina scoring and gradient op
 
 ## Features
 
-- **Automatic warhead detection**: 28 warhead types (acrylamide, epoxide, nitrile, boronic acid, etc.)
+- **Automatic warhead detection**: 29 warhead types (acrylamide, aldehyde, epoxide, nitrile, etc.)
 - **Multi-residue support**: CYS, SER, THR, TYR, LYS, HIS
-- **Adduct-first approach**: CB-S topology created before conformer generation
-- **GPU-accelerated**: PyTorch-based scoring and optimization
-- **Smart clustering**: Butina clustering on full adduct structure
-- **Flexible optimization**: Gradient-based torsion refinement
+- **GPU-accelerated**: PyTorch-based Vina scoring and gradient optimization
+- **Fast batch docking**: ~0.24s per ligand for virtual screening
 
 ## Installation
 
@@ -90,7 +88,7 @@ for r in results:
         print(f"{r['name']}: {r['best_score']:.3f} kcal/mol")
 ```
 
-**Performance:** Automatic pocket caching - no manual setup needed!
+**Performance:**
 - 1 ligand: ~0.55s
 - 10 ligands: ~2.4s (0.24s/ligand)
 - 100 ligands: ~24s (0.24s/ligand)
