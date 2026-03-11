@@ -1,0 +1,14 @@
+# Test ligand library for batch docking
+# Format: SMILES  name
+#
+# Simple acrylamides (fast ~1.5s each)
+C=CC(=O)NC  acrylamide_methyl
+C=CC(=O)NCC  acrylamide_ethyl
+C=CC(=O)NCc1ccccc1  acrylamide_benzyl
+
+# Chloroacetamides
+ClCC(=O)NC  chloroacetamide_methyl
+ClCC(=O)NCc1ccccc1  chloroacetamide_benzyl
+
+# Aldehyde (from 7AEH validation)
+O=CC(Cc1ccccc1)NC(=O)C1CCC(=O)N1Cc1ccccc1  peptidomimetic_aldehyde

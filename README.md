@@ -31,7 +31,7 @@ pip install -e .
 
 ## Quick Start
 
-### Command Line
+### Single Ligand Docking
 
 ```bash
 # Basic covalent docking
@@ -57,6 +57,30 @@ uv run python scripts/run_covalent_pipeline.py \
   --steps 200 \
   --optimize
 ```
+
+### Batch Docking (Multiple Ligands)
+
+```bash
+# Prepare ligand library (.smi format)
+cat > ligands.smi <<EOF
+C=CC(=O)NC  acrylamide_1
+ClCC(=O)NCc1ccccc1  chloroacetamide_1
+O=CC(Cc1ccccc1)NC(=O)C1CCC(=O)N1Cc1ccccc1  peptidomimetic_1
+EOF
+
+# Run batch docking
+uv run python scripts/run_batch_docking.py \
+  -p examples/6lu7/6lu7_pocket.pdb \
+  -s ligands.smi \
+  -r CYS145 \
+  -o batch_results \
+  --num_confs 200 \
+  --optimize
+
+# Results: batch_results/ligand_name/final_poses.sdf
+```
+
+See [Batch Docking Guide](docs/BATCH_DOCKING.md) for advanced usage.
 
 ### Python API
 
