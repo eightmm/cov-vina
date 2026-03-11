@@ -16,7 +16,7 @@ from rdkit.Geometry import Point3D
 from .molecular import generate_conformers_and_cluster, compute_vina_features
 from .scoring import compute_intramolecular_mask, vina_scoring
 from .optimization import optimize_torsions_vina
-from .io import load_pocket_bundle, process_query_ligand, PocketBundle, final_selection
+from .io import load_pocket_bundle, process_query_ligand, PocketBundle, final_selection, extract_pocket_around_residue
 from .molecular.relax import relax_pose_with_fixed_core
 from .molecular.anchor import (
     detect_warheads,
@@ -32,6 +32,99 @@ from .molecular.adduct import (
 )
 
 
+def load_pocket_for_caching(
+    protein_pdb: str,
+    reactive_residue: Optional[str] = None,
+    pocket_cutoff: float = 12.0,
+    device: Optional[str] = None,
+    verbose: bool = True,
+):
+    """
+    Pre-load pocket for batch docking (caching optimization).
+
+    This allows reusing pocket features across multiple ligands,
+    avoiding redundant computation.
+
+    Args:
+        protein_pdb: Path to protein PDB file
+        reactive_residue: e.g., "CYS145" or None for auto-detect
+        pocket_cutoff: Pocket extraction radius (Å)
+        device: 'cuda' or 'cpu'
+        verbose: Print progress
+
+    Returns:
+        dict with keys:
+            - pocket_bundle: PocketBundle with mol, coords, features
+            - anchor: CovalentAnchor with residue info
+            - residue_spec_str: Formatted residue string
+            - device: torch device used
+    """
+    if device is None:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = torch.device(device)
+
+    # Load protein directly
+    protein_mol = Chem.MolFromPDBFile(protein_pdb, sanitize=False, removeHs=True)
+    if protein_mol is None:
+        raise ValueError(f"Failed to load protein from {protein_pdb}")
+
+    # Find anchor residue
+    anchors = find_reactive_residues(protein_mol, residue_spec=reactive_residue)
+    if not anchors:
+        if reactive_residue:
+            raise ValueError(f"Could not find reactive residue {reactive_residue}")
+        else:
+            raise ValueError("No reactive residues found. Specify with reactive_residue='CYS145'")
+
+    anchor = anchors[0]
+    residue_spec_str = f"{anchor.residue_name}{anchor.residue_num}"
+    if anchor.chain_id.strip():
+        residue_spec_str += f":{anchor.chain_id}"
+
+    if verbose:
+        print(f"Anchor: {anchor.residue_name}{anchor.residue_num}"
+              f":{anchor.chain_id} atom {anchor.atom_name} "
+              f"(bond length {anchor.bond_length:.2f} Å)")
+        print(f"Extracting pocket within {pocket_cutoff}Å of {residue_spec_str}...")
+
+    # Extract pocket
+    pocket_mol = extract_pocket_around_residue(
+        protein_mol,
+        residue_spec_str,
+        cutoff=pocket_cutoff
+    )
+
+    if verbose:
+        print(f"  Pocket: {pocket_mol.GetNumAtoms()} atoms "
+              f"(full protein: {protein_mol.GetNumAtoms()} atoms)")
+
+    # Compute pocket features once
+    pocket_coords = torch.tensor(
+        pocket_mol.GetConformer().GetPositions(),
+        dtype=torch.float32,
+        device=device,
+    )
+    pocket_features = compute_vina_features(pocket_mol, device)
+    pocket_bundle = PocketBundle(
+        mol=pocket_mol,
+        coords=pocket_coords,
+        features=pocket_features,
+    )
+
+    # Re-find anchor in pocket
+    anchors_pocket = find_reactive_residues(pocket_mol, residue_spec=residue_spec_str)
+    if not anchors_pocket:
+        raise RuntimeError(f"Failed to re-locate anchor {residue_spec_str} in extracted pocket")
+    anchor = anchors_pocket[0]
+
+    return {
+        "pocket_bundle": pocket_bundle,
+        "anchor": anchor,
+        "residue_spec_str": residue_spec_str,
+        "device": device,
+    }
+
+
 def run_covalent_pipeline(
     protein_pdb: str,
     query_ligand: str,
@@ -39,6 +132,8 @@ def run_covalent_pipeline(
     output_dir: str = "output_predictions",
     # Pocket extraction
     pocket_cutoff: float = 12.0,
+    # Cached pocket (for batch docking optimization)
+    _cached_pocket: Optional[dict] = None,
     # Conformer generation
     num_confs: int = 1000,
     rmsd_threshold: float = 1.0,
@@ -116,72 +211,82 @@ def run_covalent_pipeline(
         print(f"Using device: {device}")
 
     # ------------------------------------------------------------------ #
-    # 1. Load protein and find reactive residue
+    # 1-2. Load protein and extract pocket (or use cached)
     # ------------------------------------------------------------------ #
-    if verbose:
-        print(f"Loading protein from {protein_pdb}...")
+    if _cached_pocket is not None:
+        # Use pre-loaded pocket (batch docking optimization)
+        pocket_bundle = _cached_pocket["pocket_bundle"]
+        anchor = _cached_pocket["anchor"]
+        residue_spec_str = _cached_pocket["residue_spec_str"]
+        device = _cached_pocket["device"]
+        pocket_mol = pocket_bundle.mol  # Extract mol from bundle
 
-    # Load full protein first
-    from .io import extract_pocket_around_residue
-    protein_mol = Chem.MolFromPDBFile(protein_pdb, sanitize=False, removeHs=True)
-    if protein_mol is None:
-        raise ValueError(f"Failed to load protein from {protein_pdb}")
+        if verbose:
+            print(f"Using cached pocket: {pocket_mol.GetNumAtoms()} atoms")
+            print(f"Anchor: {anchor.residue_name}{anchor.residue_num}"
+                  f":{anchor.chain_id} atom {anchor.atom_name}")
+    else:
+        # Load and extract pocket from scratch
+        if verbose:
+            print(f"Loading protein from {protein_pdb}...")
 
-    # Find reactive residue first (need to know which residue before extracting pocket)
-    anchors = find_reactive_residues(protein_mol, residue_spec=reactive_residue)
-    if not anchors:
-        raise ValueError(
-            f"No reactive residue found in protein"
-            + (f" matching '{reactive_residue}'" if reactive_residue else "")
-            + ". Supported residue types: " + ", ".join(sorted(
-                f"{k} ({v.atom_name})"
-                for k, v in __import__('cov_vina.molecular.anchor',
-                                       fromlist=['REACTIVE_RESIDUES']).REACTIVE_RESIDUES.items()
-            ))
+        from .io import extract_pocket_around_residue
+        protein_mol = Chem.MolFromPDBFile(protein_pdb, sanitize=False, removeHs=True)
+        if protein_mol is None:
+            raise ValueError(f"Failed to load protein from {protein_pdb}")
+
+        # Find reactive residue
+        anchors = find_reactive_residues(protein_mol, residue_spec=reactive_residue)
+        if not anchors:
+            raise ValueError(
+                f"No reactive residue found in protein"
+                + (f" matching '{reactive_residue}'" if reactive_residue else "")
+                + ". Supported residue types: " + ", ".join(sorted(
+                    f"{k} ({v.atom_name})"
+                    for k, v in __import__('cov_vina.molecular.anchor',
+                                           fromlist=['REACTIVE_RESIDUES']).REACTIVE_RESIDUES.items()
+                ))
+            )
+        anchor = anchors[0]
+
+        residue_spec_str = f"{anchor.residue_name}{anchor.residue_num}"
+        if anchor.chain_id:
+            residue_spec_str += f":{anchor.chain_id}"
+
+        if verbose:
+            print(f"Anchor: {anchor.residue_name}{anchor.residue_num}"
+                  f":{anchor.chain_id} atom {anchor.atom_name} "
+                  f"(bond length {anchor.bond_length:.2f} Å)")
+            print(f"Extracting pocket within {pocket_cutoff}Å of {residue_spec_str}...")
+
+        pocket_mol = extract_pocket_around_residue(
+            protein_mol,
+            residue_spec_str,
+            cutoff=pocket_cutoff
         )
-    anchor = anchors[0]
 
-    # ------------------------------------------------------------------ #
-    # 2. Extract pocket around reactive residue
-    # ------------------------------------------------------------------ #
-    residue_spec_str = f"{anchor.residue_name}{anchor.residue_num}"
-    if anchor.chain_id:
-        residue_spec_str += f":{anchor.chain_id}"
+        if verbose:
+            print(f"  Pocket: {pocket_mol.GetNumAtoms()} atoms "
+                  f"(full protein: {protein_mol.GetNumAtoms()} atoms)")
 
-    if verbose:
-        print(f"Anchor: {anchor.residue_name}{anchor.residue_num}"
-              f":{anchor.chain_id} atom {anchor.atom_name} "
-              f"(bond length {anchor.bond_length:.2f} Å)")
-        print(f"Extracting pocket within {pocket_cutoff}Å of {residue_spec_str}...")
+        # Create pocket bundle
+        pocket_coords = torch.tensor(
+            pocket_mol.GetConformer().GetPositions(),
+            dtype=torch.float32,
+            device=device,
+        )
+        pocket_features = compute_vina_features(pocket_mol, device)
+        pocket_bundle = PocketBundle(
+            mol=pocket_mol,
+            coords=pocket_coords,
+            features=pocket_features,
+        )
 
-    pocket_mol = extract_pocket_around_residue(
-        protein_mol,
-        residue_spec_str,
-        cutoff=pocket_cutoff
-    )
-
-    if verbose:
-        print(f"  Pocket: {pocket_mol.GetNumAtoms()} atoms "
-              f"(full protein: {protein_mol.GetNumAtoms()} atoms)")
-
-    # Create pocket bundle
-    pocket_coords = torch.tensor(
-        pocket_mol.GetConformer().GetPositions(),
-        dtype=torch.float32,
-        device=device,
-    )
-    pocket_features = compute_vina_features(pocket_mol, device)
-    pocket_bundle = PocketBundle(
-        mol=pocket_mol,
-        coords=pocket_coords,
-        features=pocket_features,
-    )
-
-    # Re-find anchor in pocket (indices changed after extraction)
-    anchors_pocket = find_reactive_residues(pocket_mol, residue_spec=residue_spec_str)
-    if not anchors_pocket:
-        raise RuntimeError(f"Failed to re-locate anchor {residue_spec_str} in extracted pocket")
-    anchor = anchors_pocket[0]
+        # Re-find anchor in pocket
+        anchors_pocket = find_reactive_residues(pocket_mol, residue_spec=residue_spec_str)
+        if not anchors_pocket:
+            raise RuntimeError(f"Failed to re-locate anchor {residue_spec_str} in extracted pocket")
+        anchor = anchors_pocket[0]
 
     # ------------------------------------------------------------------ #
     # 3. Load & detect warhead on query ligand

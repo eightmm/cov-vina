@@ -41,6 +41,10 @@ htmlcov/
 test_outputs/
 output/
 output_*/
+test_batch/
+test_cached/
+batch_results/
+*_results/
 
 # Temporary development files (keep in scripts/_archive/)
 refactor_*.py
