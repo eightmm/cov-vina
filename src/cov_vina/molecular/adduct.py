@@ -19,7 +19,7 @@ LEAVING_GROUPS = {
     "bromoacetamide": [0],    # Remove Br
     "iodoacetamide": [0],     # Remove I
     "fluoroacetamide": [0],   # Remove F
-    "chlorofluoroacetamide": [0, 1],  # Remove Cl, F
+    "chlorofluoroacetamide": [0, 2],  # Remove Cl, F
 
     # Michael acceptors: no leaving group (addition reaction)
     "acrylamide": [],
@@ -54,7 +54,7 @@ LEAVING_GROUPS = {
     "tfe_ester": [],  # TFE group leaves, but complex
 
     # Acyl fluoride & sulfonyl fluoride: remove F
-    "acyl_fluoride": [0],
+    "acyl_fluoride": [2],
     "sulfonyl_fluoride": [0],
 }
 
@@ -95,24 +95,83 @@ def create_adduct_template(
     # Step 3: Create editable copy
     editable_mol = Chem.RWMol(ligand_mol)
 
-    # Step 4: Handle Michael addition (no leaving group)
+    # Step 4: Handle warheads with no leaving group
     if not leaving_group_pattern:
-        # Find the double bond adjacent to reactive atom (beta carbon)
-        reactive_atom = editable_mol.GetAtomWithIdx(warhead.reactive_atom_idx)
-        double_bond_neighbor = None
+        michael_warheads = {
+            "acrylamide", "acrylic_acid", "acrylate", "enone",
+            "vinyl_sulfonamide", "vinyl_sulfone", "maleimide",
+            "cyanoacrylamide",
+        }
+        ring_opening_warheads = {"epoxide", "aziridine", "thiirane"}
+        triple_bond_warheads = {
+            "aryl_nitrile", "alkyl_nitrile", "propiolamide", "propargylamide",
+        }
+        # Addition warheads: just form new bond, no topology change needed
+        addition_warheads = {
+            "aldehyde", "alpha_ketoamide", "isothiocyanate",
+            "boronic_acid", "phosphonate", "disulfide",
+            "nhs_ester", "tfe_ester",
+        }
 
-        for bond in reactive_atom.GetBonds():
-            if bond.GetBondType() == Chem.BondType.DOUBLE:
+        wtype = warhead.warhead_type
+
+        if wtype in michael_warheads:
+            # Michael addition: convert C=C double bond to single bond
+            reactive_atom = editable_mol.GetAtomWithIdx(warhead.reactive_atom_idx)
+            double_bond_neighbor = None
+            for bond in reactive_atom.GetBonds():
+                if bond.GetBondType() == Chem.BondType.DOUBLE:
+                    other_idx = bond.GetOtherAtomIdx(warhead.reactive_atom_idx)
+                    double_bond_neighbor = other_idx
+                    break
+            if double_bond_neighbor is None:
+                raise ValueError(f"No double bond found for Michael addition on {wtype}")
+            editable_mol.RemoveBond(warhead.reactive_atom_idx, double_bond_neighbor)
+            editable_mol.AddBond(warhead.reactive_atom_idx, double_bond_neighbor, Chem.BondType.SINGLE)
+
+        elif wtype in ring_opening_warheads:
+            # Ring opening: break the bond between reactive C and the ring heteroatom
+            reactive_atom = editable_mol.GetAtomWithIdx(warhead.reactive_atom_idx)
+            heteroatom_nums = {7, 8, 16}  # N, O, S
+            ring_bond_broken = False
+            for bond in reactive_atom.GetBonds():
                 other_idx = bond.GetOtherAtomIdx(warhead.reactive_atom_idx)
-                double_bond_neighbor = other_idx
-                break
+                other_atom = editable_mol.GetAtomWithIdx(other_idx)
+                if other_atom.GetAtomicNum() in heteroatom_nums:
+                    # Check if they share a small ring
+                    ring_info = editable_mol.GetRingInfo()
+                    for ring in ring_info.AtomRings():
+                        if warhead.reactive_atom_idx in ring and other_idx in ring and len(ring) == 3:
+                            editable_mol.RemoveBond(warhead.reactive_atom_idx, other_idx)
+                            editable_mol.AddBond(warhead.reactive_atom_idx, other_idx, Chem.BondType.SINGLE)
+                            ring_bond_broken = True
+                            break
+                    if ring_bond_broken:
+                        break
+            # If no ring bond found, proceed anyway (just add nucleophile bond)
 
-        if double_bond_neighbor is None:
-            raise ValueError("No double bond found for Michael addition mechanism")
+        elif wtype in triple_bond_warheads:
+            # Triple bond addition: reduce C#N or C#C to double bond
+            reactive_atom = editable_mol.GetAtomWithIdx(warhead.reactive_atom_idx)
+            for bond in reactive_atom.GetBonds():
+                if bond.GetBondType() == Chem.BondType.TRIPLE:
+                    other_idx = bond.GetOtherAtomIdx(warhead.reactive_atom_idx)
+                    editable_mol.RemoveBond(warhead.reactive_atom_idx, other_idx)
+                    editable_mol.AddBond(warhead.reactive_atom_idx, other_idx, Chem.BondType.DOUBLE)
+                    break
 
-        # Change double bond (C=C) to single bond (C-C)
-        editable_mol.RemoveBond(warhead.reactive_atom_idx, double_bond_neighbor)
-        editable_mol.AddBond(warhead.reactive_atom_idx, double_bond_neighbor, Chem.BondType.SINGLE)
+        elif wtype in addition_warheads:
+            # Simple addition: just form new bond to nucleophile (no bond order change)
+            # Boronic acid/ester: B goes sp2→sp3 (tetrahedral boronate, formal charge -1)
+            if wtype == "boronic_acid":
+                reactive_atom = editable_mol.GetAtomWithIdx(warhead.reactive_atom_idx)
+                reactive_atom.SetFormalCharge(-1)
+
+        else:
+            raise ValueError(
+                f"Unsupported warhead type '{wtype}' with no leaving group. "
+                f"Cannot determine reaction mechanism for adduct creation."
+            )
     else:
         # Step 5: Remove leaving group atoms (sort descending to avoid index shift)
         for atom_idx in sorted(leaving_atoms_to_remove, reverse=True):
@@ -153,7 +212,10 @@ def create_adduct_template(
     try:
         Chem.SanitizeMol(adduct_mol)
     except Exception as e:
-        print(f"Warning: Sanitization failed after creating adduct template: {e}")
+        raise ValueError(
+            f"Sanitization failed after creating adduct template for "
+            f"warhead '{warhead.warhead_type}': {e}"
+        ) from e
 
     return adduct_mol, cb_idx, nuc_idx, new_reactive_idx
 
@@ -399,30 +461,44 @@ def get_covalent_exclusion_indices(
     return exclude_indices
 
 
-def get_protein_exclusion_residues(
-    anchor: AnchorPoint,
-    n_residue_exclude: int = 1
-) -> list[str]:
-    """
-    Get protein residues that should be excluded from intermolecular scoring.
+def get_protein_exclusion_atom_indices(
+    pocket_mol: Chem.Mol,
+    anchor: 'AnchorPoint',
+    n_hop_exclude: int = 1
+) -> set[int]:
+    """Get protein atom indices near the covalent bond to exclude from intermolecular scoring."""
+    import numpy as np
 
-    Args:
-        anchor: Anchor point
-        n_residue_exclude: How many residues to exclude (0=none, 1=anchor only, 2=anchor+neighbors)
+    # Find nucleophilic atom in pocket by coordinate matching
+    conf = pocket_mol.GetConformer()
+    nuc_idx = None
+    min_dist = float('inf')
+    for atom in pocket_mol.GetAtoms():
+        pos = np.array(conf.GetAtomPosition(atom.GetIdx()))
+        dist = np.linalg.norm(pos - anchor.coord)
+        if dist < min_dist:
+            min_dist = dist
+            nuc_idx = atom.GetIdx()
 
-    Returns:
-        List of residue identifiers like "CYS145:A"
-    """
-    # For now, just return the anchor residue
-    # Could be extended to exclude neighboring residues
-    return [f"{anchor.residue_name}{anchor.residue_num}:{anchor.chain_id}"]
+    if nuc_idx is None or min_dist > 0.5:
+        return set()
+
+    # BFS n-hop exclusion from nucleophilic atom
+    exclude = {nuc_idx}
+    for _ in range(n_hop_exclude):
+        current = set(exclude)
+        for idx in current:
+            atom = pocket_mol.GetAtomWithIdx(idx)
+            for nbr in atom.GetNeighbors():
+                exclude.add(nbr.GetIdx())
+    return exclude
 
 
 def create_intermolecular_exclusion_mask(
     ligand_mol: Chem.Mol,
     protein_mol: Chem.Mol,
     ligand_exclude_indices: set[int],
-    protein_residue_excludes: list[str],
+    protein_exclude_atom_indices: set[int],
     device
 ) -> 'torch.Tensor':
     """
@@ -432,7 +508,7 @@ def create_intermolecular_exclusion_mask(
         ligand_mol: Ligand molecule (adduct, after leaving group removal)
         protein_mol: Protein/pocket molecule
         ligand_exclude_indices: Ligand atom indices to exclude (near covalent bond)
-        protein_residue_excludes: Protein residue IDs to exclude (e.g., ["CYS145:A"])
+        protein_exclude_atom_indices: Protein atom indices to exclude (near covalent bond)
         device: torch device
 
     Returns:
@@ -451,22 +527,10 @@ def create_intermolecular_exclusion_mask(
     for lig_idx in ligand_exclude_indices:
         mask[lig_idx, :] = True
 
-    # Mark protein residue atoms for exclusion
-    protein_exclude_atom_indices = []
-    for atom_idx in range(num_protein_atoms):
-        atom = protein_mol.GetAtomWithIdx(atom_idx)
-        pdb_info = atom.GetPDBResidueInfo()
-        if pdb_info:
-            res_name = pdb_info.GetResidueName().strip()
-            res_num = pdb_info.GetResidueNumber()
-            chain_id = pdb_info.GetChainId()
-            res_id = f"{res_name}{res_num}:{chain_id}"
-
-            if res_id in protein_residue_excludes:
-                protein_exclude_atom_indices.append(atom_idx)
-
-    # Exclude all ligand atoms from interacting with excluded protein atoms
+    # Mark protein atoms for exclusion
     if protein_exclude_atom_indices:
-        mask[:, protein_exclude_atom_indices] = True
+        for prot_idx in protein_exclude_atom_indices:
+            if prot_idx < num_protein_atoms:
+                mask[:, prot_idx] = True
 
     return mask.unsqueeze(0)  # Add batch dimension

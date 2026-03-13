@@ -4,7 +4,8 @@ import torch
 from rdkit import Chem
 
 
-def compute_intramolecular_mask(mol: Chem.Mol, device: torch.device) -> torch.Tensor:
+def compute_intramolecular_mask(mol: Chem.Mol, device: torch.device,
+                                exclude_atom_indices: set = None) -> torch.Tensor:
     """
     Computes a boolean mask [N, N] for intramolecular Vina scoring.
     True means the interaction between atom i and j SHOULD be calculated.
@@ -26,5 +27,10 @@ def compute_intramolecular_mask(mol: Chem.Mol, device: torch.device) -> torch.Te
         ring_tensor = torch.tensor(list(ring), dtype=torch.long, device=device)
         # Create a meshgrid for the ring atoms
         mask[ring_tensor[:, None], ring_tensor] = False
+
+    if exclude_atom_indices:
+        for idx in exclude_atom_indices:
+            mask[idx, :] = False
+            mask[:, idx] = False
 
     return mask

@@ -112,12 +112,19 @@ def extract_pocket_around_residue(
         raise ValueError("Protein molecule has no conformer")
     conf = protein_mol.GetConformer()
 
-    # Find residue atoms
+    # Find residue atoms (protein ATOM records only, skip HETATM like ligands/waters/ions)
     residue_atom_indices = []
+    protein_atom_indices_set = set()
     for atom in protein_mol.GetAtoms():
         pdb_info = atom.GetPDBResidueInfo()
         if pdb_info is None:
             continue
+
+        # Skip non-protein atoms (HETATM: ligands, waters, ions)
+        if pdb_info.GetIsHeteroAtom():
+            continue
+
+        protein_atom_indices_set.add(atom.GetIdx())
 
         atom_res_name = pdb_info.GetResidueName().strip()
         atom_res_num = pdb_info.GetResidueNumber()
@@ -152,8 +159,9 @@ def extract_pocket_around_residue(
     # Calculate all distances at once - vectorized
     distances = np.linalg.norm(all_coords - residue_center, axis=1)
 
-    # Find atoms within cutoff - vectorized boolean indexing
-    pocket_atom_indices = np.where(distances <= cutoff)[0].tolist()
+    # Find protein atoms within cutoff (exclude HETATM)
+    within_cutoff = np.where(distances <= cutoff)[0]
+    pocket_atom_indices = [i for i in within_cutoff.tolist() if i in protein_atom_indices_set]
 
     if not pocket_atom_indices:
         raise ValueError(f"No atoms found within {cutoff}Å of residue {residue_spec}")

@@ -56,29 +56,3 @@ def warmup_gpu(device: torch.device, verbose: bool = False):
 
     return elapsed
 
-
-_conformer_cache = {}
-
-
-def get_cached_conformers(canonical_smiles: str):
-    """Get conformers from cache."""
-    return _conformer_cache.get(canonical_smiles)
-
-
-def cache_conformers(canonical_smiles: str, mol_with_conformers, representative_ids):
-    """Cache conformers for reuse."""
-    _conformer_cache[canonical_smiles] = (mol_with_conformers, representative_ids)
-
-
-def clear_conformer_cache():
-    """Clear conformer cache (for testing)."""
-    global _conformer_cache
-    _conformer_cache = {}
-
-
-def get_cache_stats():
-    """Get conformer cache statistics."""
-    return {
-        'size': len(_conformer_cache),
-        'smiles': list(_conformer_cache.keys()),
-    }

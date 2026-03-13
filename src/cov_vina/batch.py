@@ -20,8 +20,6 @@ def run_batch_docking(
     # Conformer generation
     num_confs: int = 200,
     rmsd_threshold: float = 1.0,
-    # Force field
-    mmff_optimize: bool = True,
     # Optimization
     optimize: bool = True,
     optimizer: Literal["adam", "adamw", "lbfgs"] = "adam",
@@ -179,7 +177,6 @@ def run_batch_docking(
                 pocket_cutoff=pocket_cutoff,
                 num_confs=num_confs,
                 rmsd_threshold=rmsd_threshold,
-                mmff_optimize=mmff_optimize,
                 optimize=optimize,
                 optimizer=optimizer,
                 opt_steps=opt_steps,

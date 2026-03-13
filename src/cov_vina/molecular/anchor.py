@@ -74,7 +74,7 @@ _WARHEAD_REGISTRY: list[tuple[str, int, str]] = [
     ("[C:1](=O)F",                     1, "acyl_fluoride"),
 
     # --- Boronic acid (for SER) ---
-    ("[B:1]([OH])[OH]",                1, "boronic_acid"),
+    ("[B:1]([OX2])[OX2]",              1, "boronic_acid"),
 
     # --- Phosphonate (for SER) ---
     ("[P:1](=O)([OH])[OH]",           1, "phosphonate"),

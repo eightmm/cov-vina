@@ -6,18 +6,17 @@ This module provides the main entry-point:
 """
 import os
 import time
+import numpy as np
 import torch
-from typing import Optional, Union, Literal
+from typing import Optional, Literal
 from rdkit import Chem
-from rdkit.Chem import AllChem
 from rdkit import RDLogger
 from rdkit.Geometry import Point3D
 
 from .molecular import generate_conformers_and_cluster, compute_vina_features
-from .scoring import compute_intramolecular_mask, vina_scoring
+from .scoring import compute_intramolecular_mask, vina_scoring, precompute_interaction_matrices
 from .optimization import optimize_torsions_vina
-from .io import load_pocket_bundle, process_query_ligand, PocketBundle, final_selection, extract_pocket_around_residue
-from .molecular.relax import relax_pose_with_fixed_core
+from .io import process_query_ligand, PocketBundle, final_selection, extract_pocket_around_residue
 from .molecular.anchor import (
     detect_warheads,
     find_reactive_residues,
@@ -26,8 +25,7 @@ from .molecular.anchor import (
 )
 from .molecular.adduct import (
     create_adduct_template,
-    get_covalent_exclusion_indices,
-    get_protein_exclusion_residues,
+    get_protein_exclusion_atom_indices,
     create_intermolecular_exclusion_mask,
 )
 
@@ -137,8 +135,9 @@ def run_covalent_pipeline(
     # Conformer generation
     num_confs: int = 1000,
     rmsd_threshold: float = 1.0,
-    # Force field
-    mmff_optimize: bool = True,
+    # Rotation scan
+    rotation_scan_step: int = 30,
+    rotation_top_k: int = 50,
     # Optimization
     optimize: bool = False,
     optimizer: Literal["adam", "adamw", "lbfgs"] = "adam",
@@ -175,8 +174,6 @@ def run_covalent_pipeline(
 
         num_confs: Number of conformers to generate.
         rmsd_threshold: RMSD threshold for clustering (Å).
-
-        mmff_optimize: Apply MMFF94 relaxation after anchor placement.
 
         optimize: Enable gradient-based torsion optimization.
         optimizer: Optimizer type.
@@ -328,6 +325,12 @@ def run_covalent_pipeline(
     # Remove hydrogens first to match warhead detection
     query_mol = Chem.RemoveHs(query_mol)
 
+    # Compute rotatable bonds on original ligand (before adduct creation)
+    _original_num_rotatable_bonds = None
+    if torsion_penalty:
+        from rdkit.Chem import rdMolDescriptors
+        _original_num_rotatable_bonds = rdMolDescriptors.CalcNumRotatableBonds(query_mol)
+
     # Create adduct template (topology only, no conformers)
     adduct_mol, cb_atom_idx, nuc_atom_idx, new_reactive_idx = create_adduct_template(
         query_mol, warhead, anchor
@@ -374,36 +377,135 @@ def run_covalent_pipeline(
         nuc_name = anchor.atom_name
         print(f"Generated {len(rep_cids)} representative conformers (Butina clustering with CB-{nuc_name})")
 
-    # Atoms to fix during MMFF: CB and nucleophile
-    anchor_query_indices = {nuc_atom_idx}
-    if cb_atom_idx is not None:
-        anchor_query_indices.add(cb_atom_idx)
-
     # ------------------------------------------------------------------ #
-    # 6. Optional MMFF relaxation with CB-Nuc fixed
+    # 5.5. Align conformers to anchor position (coordMap is soft constraint)
     # ------------------------------------------------------------------ #
-    if mmff_optimize and verbose:
-        nuc_name = anchor.atom_name
-        print(f"Relaxing conformers via MMFF94 with CB-{nuc_name} fixed...")
+    # RDKit coordMap doesn't guarantee absolute positions, so we align
+    # each conformer's CB+Nuc atoms to the target protein coordinates.
+    ref_indices_list = []
+    target_positions = []
+    if cb_atom_idx is not None and anchor.cb_coord is not None:
+        ref_indices_list.append(cb_atom_idx)
+        target_positions.append(anchor.cb_coord)
+    ref_indices_list.append(nuc_atom_idx)
+    target_positions.append(anchor.coord)
+    target_positions = np.array(target_positions, dtype=np.float64)
 
-    batch_size = len(rep_cids)
-    num_atoms = adduct_mol.GetNumAtoms()
-    aligned_coords = torch.zeros((batch_size, num_atoms, 3))
-
-    for j, cid in enumerate(rep_cids):
+    for cid in rep_cids:
         conf = adduct_mol.GetConformer(cid)
+        current_positions = np.array([list(conf.GetAtomPosition(idx)) for idx in ref_indices_list])
 
-        # Relax non-anchor atoms
-        if mmff_optimize:
-            applied, message = relax_pose_with_fixed_core(
-                adduct_mol, cid, anchor_query_indices, max_iters=500,
+        # Compute optimal rigid transform (Kabsch): R, t such that target = R @ current + t
+        current_centroid = current_positions.mean(axis=0)
+        target_centroid = target_positions.mean(axis=0)
+        H = (current_positions - current_centroid).T @ (target_positions - target_centroid)
+        U, _, Vt = np.linalg.svd(H)
+        d = np.linalg.det(Vt.T @ U.T)
+        S = np.eye(3)
+        if d < 0:
+            S[2, 2] = -1
+        R = Vt.T @ S @ U.T
+
+        # Apply transform to all atoms
+        all_pos = np.array(conf.GetPositions())
+        aligned = (all_pos - current_centroid) @ R.T + target_centroid
+        for i in range(adduct_mol.GetNumAtoms()):
+            conf.SetAtomPosition(i, Point3D(float(aligned[i, 0]), float(aligned[i, 1]), float(aligned[i, 2])))
+
+    if verbose:
+        # Verify alignment
+        sample_conf = adduct_mol.GetConformer(rep_cids[0])
+        nuc_pos = np.array(sample_conf.GetAtomPosition(nuc_atom_idx))
+        dist = np.linalg.norm(nuc_pos - anchor.coord)
+        print(f"  Alignment check: Nuc atom distance to target = {dist:.4f} Å")
+
+    # ------------------------------------------------------------------ #
+    # 5.7. Rotation scan around CB→Nuc axis
+    # ------------------------------------------------------------------ #
+    num_atoms = adduct_mol.GetNumAtoms()
+
+    if rotation_scan_step > 0 and cb_atom_idx is not None:
+        # Extract aligned coords from conformers
+        n_reps = len(rep_cids)
+        init_coords = torch.zeros((n_reps, num_atoms, 3), device=device)
+        for j, cid in enumerate(rep_cids):
+            conf = adduct_mol.GetConformer(cid)
+            init_coords[j] = torch.tensor(conf.GetPositions(), dtype=torch.float32, device=device)
+
+        # Rotation axis: CB → Nuc
+        cb_pos = torch.tensor(anchor.cb_coord, dtype=torch.float32, device=device)
+        nuc_pos_t = torch.tensor(anchor.coord, dtype=torch.float32, device=device)
+        axis = nuc_pos_t - cb_pos
+        axis = axis / axis.norm()
+        origin = nuc_pos_t
+
+        # Generate rotation matrices via Rodrigues
+        angles = torch.arange(0, 360, rotation_scan_step, dtype=torch.float32, device=device) * (torch.pi / 180)
+        n_rotations = len(angles)
+
+        all_rotated = []
+        for angle in angles:
+            K = torch.tensor([
+                [0, -axis[2], axis[1]],
+                [axis[2], 0, -axis[0]],
+                [-axis[1], axis[0], 0],
+            ], device=device)
+            R = torch.eye(3, device=device) + torch.sin(angle) * K + (1 - torch.cos(angle)) * (K @ K)
+            shifted = init_coords - origin
+            rotated = torch.matmul(shifted, R.T) + origin
+            all_rotated.append(rotated)
+
+        all_rotated = torch.cat(all_rotated, dim=0)  # (n_reps * n_rotations, n_atoms, 3)
+
+        if verbose:
+            print(f"Rotation scan: {n_reps} conformers × {n_rotations} rotations = {all_rotated.shape[0]} poses")
+
+        # Quick score all rotated poses (no optimization)
+        pocket_coords_scan = pocket_bundle.coords
+        pocket_features_scan = pocket_bundle.features
+        query_features_scan = compute_vina_features(adduct_mol, device)
+        precomputed_scan = precompute_interaction_matrices(query_features_scan, pocket_features_scan, device)
+
+        # Score in batches to avoid OOM
+        scan_batch = 256
+        all_scores = []
+        for i in range(0, all_rotated.shape[0], scan_batch):
+            batch_coords = all_rotated[i:i + scan_batch]
+            scores_batch = vina_scoring(
+                batch_coords, pocket_coords_scan, query_features_scan, pocket_features_scan,
+                None, weight_preset, precomputed_matrices=precomputed_scan,
             )
-            if verbose:
-                print(f"  Conformer {cid}: {message}")
+            all_scores.append(scores_batch)
+        all_scores = torch.cat(all_scores)
 
-        aligned_coords[j] = torch.tensor(conf.GetPositions(), dtype=torch.float32)
+        # Select best rotation per conformer (preserves conformer diversity)
+        all_scores_matrix = all_scores.view(n_rotations, n_reps)  # (n_rotations, n_reps)
+        best_rot_per_conf = all_scores_matrix.argmin(dim=0)  # (n_reps,) best rotation index per conformer
+        best_indices = best_rot_per_conf * n_reps + torch.arange(n_reps, device=device)
+        best_per_conf = all_rotated[best_indices]
+        best_scores_per_conf = all_scores[best_indices]
 
-    aligned_coords = aligned_coords.to(device)
+        # Then take top-K from the per-conformer bests
+        k = min(rotation_top_k, n_reps)
+        top_indices = best_scores_per_conf.argsort()[:k]
+        aligned_coords = best_per_conf[top_indices].clone()
+
+        if verbose:
+            print(f"  Best rotation per conformer → top {k}/{n_reps} poses "
+                  f"(best quick score: {best_scores_per_conf[top_indices[0]]:.3f} kcal/mol)")
+
+        # Skip MMFF — ETKDG produces reasonable geometry,
+        # and UFF/MMFF can distort unusual chemistry (e.g. boronic acids)
+    else:
+        # No rotation scan: just use aligned conformer coords directly
+        batch_size = len(rep_cids)
+        aligned_coords = torch.zeros((batch_size, num_atoms, 3))
+
+        for j, cid in enumerate(rep_cids):
+            conf = adduct_mol.GetConformer(cid)
+            aligned_coords[j] = torch.tensor(conf.GetPositions(), dtype=torch.float32)
+
+        aligned_coords = aligned_coords.to(device)
 
     # Replace query_mol with adduct
     query_mol = adduct_mol
@@ -427,16 +529,22 @@ def run_covalent_pipeline(
 
     # Build query features (no masking - we use explicit exclusion mask instead)
     query_features = compute_vina_features(query_mol, device)
+    precomputed = precompute_interaction_matrices(query_features, pocket_features, device)
 
     # Create exclusion mask for covalent region
-    ligand_exclude_indices = get_covalent_exclusion_indices(
-        query_mol, warhead, n_hop_exclude=2
-    )
-    protein_exclude_residues = get_protein_exclusion_residues(anchor)
+    # Only exclude atoms directly involved in the covalent bond:
+    # - Ligand: reactive atom + added protein atoms (CB, Nuc)
+    # - Protein: nucleophilic atom only
+    ligand_exclude_indices = {new_reactive_idx}
+    if cb_atom_idx is not None:
+        ligand_exclude_indices.add(cb_atom_idx)
+    if nuc_atom_idx is not None:
+        ligand_exclude_indices.add(nuc_atom_idx)
+    protein_exclude_atom_indices = get_protein_exclusion_atom_indices(pocket_mol, anchor, n_hop_exclude=0)
 
     intermolecular_exclusion_mask = create_intermolecular_exclusion_mask(
         query_mol, pocket_mol, ligand_exclude_indices,
-        protein_exclude_residues, device
+        protein_exclude_atom_indices, device
     )
 
     if verbose:
@@ -445,15 +553,18 @@ def run_covalent_pipeline(
         print(f"  Excluding {num_excluded_pairs}/{total_pairs} atom pairs "
               f"({num_excluded_pairs/total_pairs*100:.1f}%)")
 
-    num_rotatable_bonds = None
-    if torsion_penalty:
-        from rdkit.Chem import rdMolDescriptors
-        num_rotatable_bonds = rdMolDescriptors.CalcNumRotatableBonds(query_mol)
+    num_rotatable_bonds = _original_num_rotatable_bonds
 
-    intra_mask = compute_intramolecular_mask(query_mol, device)
+    protein_atom_indices = set()
+    if cb_atom_idx is not None:
+        protein_atom_indices.add(cb_atom_idx)
+    if nuc_atom_idx is not None:
+        protein_atom_indices.add(nuc_atom_idx)
+    intra_mask = compute_intramolecular_mask(query_mol, device, exclude_atom_indices=protein_atom_indices)
     scores = vina_scoring(
         aligned_coords, pocket_coords, query_features, pocket_features,
         num_rotatable_bonds, weight_preset, intramolecular_mask=intra_mask,
+        precomputed_matrices=precomputed,
         intermolecular_exclusion_mask=intermolecular_exclusion_mask,
     )
     initial_scores = scores.clone()
@@ -461,10 +572,12 @@ def run_covalent_pipeline(
     # ------------------------------------------------------------------ #
     # 8. Optional gradient optimization
     # ------------------------------------------------------------------ #
+    n_poses = aligned_coords.shape[0]
+
     if optimize:
         if verbose:
             print(f"\n--- Gradient-Based Torsion Optimization "
-                  f"({len(rep_cids)} poses) ---")
+                  f"({n_poses} poses) ---")
 
         # For covalent docking, freeze the anchor atom (protein Cβ)
         # This allows both Cβ-S and S-C bonds to rotate freely
@@ -486,12 +599,14 @@ def run_covalent_pipeline(
             batch_size=opt_batch_size,
             optimizer=optimizer,
             intermolecular_exclusion_mask=intermolecular_exclusion_mask,
+            precomputed_matrices=precomputed,
         )
 
         new_scores = vina_scoring(
             aligned_coords, pocket_coords, query_features, pocket_features,
             num_rotatable_bonds, weight_preset,
             intramolecular_mask=intra_mask,
+            precomputed_matrices=precomputed,
             intermolecular_exclusion_mask=intermolecular_exclusion_mask,
         )
 
@@ -510,26 +625,28 @@ def run_covalent_pipeline(
     # 9. Save results
     # ------------------------------------------------------------------ #
     if save_all_poses is None:
-        save_all_poses = optimize
+        save_all_poses = True
     if top_k is None:
         top_k = None if save_all_poses else 3
 
     os.makedirs(output_dir, exist_ok=True)
 
+    pose_ids = list(range(n_poses))
+
     if top_k is None:
         out_sdf = os.path.join(output_dir, "covalent_poses_all.sdf")
         final_selection(
-            query_mol, rep_cids, aligned_coords, scores,
+            query_mol, pose_ids, aligned_coords, scores,
             initial_scores=initial_scores, top_k=None, output_path=out_sdf,
         )
-        num_saved = len(rep_cids)
+        num_saved = n_poses
     else:
         out_sdf = os.path.join(output_dir, f"covalent_pose_top{top_k}.sdf")
         final_selection(
-            query_mol, rep_cids, aligned_coords, scores,
+            query_mol, pose_ids, aligned_coords, scores,
             initial_scores=initial_scores, top_k=top_k, output_path=out_sdf,
         )
-        num_saved = min(top_k, len(rep_cids))
+        num_saved = min(top_k, n_poses)
 
     t1 = time.time()
     runtime = t1 - t0
@@ -545,22 +662,10 @@ def run_covalent_pipeline(
         "best_score": best_score,
         "runtime": runtime,
         "num_conformers": num_confs,
-        "num_representatives": len(rep_cids),
+        "num_representatives": n_poses,
         "warhead_type": warhead.warhead_type,
         "anchor_residue": f"{anchor.residue_name}{anchor.residue_num}",
         "anchor_atom": anchor.atom_name,
         "canonical_smiles": canonical_smiles,
         "device": str(device),
     }
-
-
-def _mask_anchor_atom_features(query_features: dict, anchor_idx: int) -> None:
-    """
-    Zero-out Vina features for the anchor atom so it is excluded from
-    intermolecular scoring.  The atom's VdW radius is set to 0 which
-    effectively removes all distance-based terms for that pair.
-    """
-    query_features['vdw'][anchor_idx] = 0.0
-    query_features['hydro'][anchor_idx] = 0.0
-    query_features['hbd'][anchor_idx] = 0.0
-    query_features['hba'][anchor_idx] = 0.0

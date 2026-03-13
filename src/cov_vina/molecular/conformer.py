@@ -4,6 +4,27 @@ from rdkit.Chem import AllChem
 from rdkit.ML.Cluster import Butina
 from typing import List, Tuple, Optional, Dict
 
+def _mmff_with_fixed_atoms(mol, conf_id, fixed_indices, max_iters=200):
+    """Run MMFF optimization with specific atoms fixed at their positions."""
+    try:
+        mol.UpdatePropertyCache(strict=False)
+        Chem.GetSymmSSSR(mol)
+    except Exception:
+        pass
+    props = AllChem.MMFFGetMoleculeProperties(mol)
+    if props is None:
+        return
+    ff = AllChem.MMFFGetMoleculeForceField(mol, props, confId=conf_id)
+    if ff is None:
+        return
+    for idx in fixed_indices:
+        ff.AddFixedPoint(idx)
+    try:
+        ff.Minimize(maxIts=max_iters)
+    except RuntimeError:
+        pass
+
+
 def generate_conformers_and_cluster(mol: Chem.Mol,
                                     device: torch.device,
                                     num_confs: int = 1000,
@@ -46,9 +67,9 @@ def generate_conformers_and_cluster(mol: Chem.Mol,
         cids = AllChem.EmbedMultipleConfs(mol, numConfs=num_confs, params=params)
     
     if coordMap is not None and len(cids) > 0:
+        fixed_indices = set(coordMap.keys())
         for cid in cids:
-            AllChem.MMFFOptimizeMolecule(mol, confId=cid, maxIters=200, 
-                                         nonBondedThresh=100.0, ignoreInterfragInteractions=False)
+            _mmff_with_fixed_atoms(mol, cid, fixed_indices)
     
     if len(cids) == 0:
         raise RuntimeError("Conformer generation failed completely.")

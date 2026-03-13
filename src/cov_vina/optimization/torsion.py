@@ -25,6 +25,7 @@ def optimize_torsions_vina(mol: Chem.Mol,
                            patience: int = 30,
                            min_delta: float = 1e-5,
                            intermolecular_exclusion_mask: torch.Tensor = None,
+                           precomputed_matrices: dict = None,
                            return_stats: bool = False):
     """
     Optimizes torsion angles to minimize Vina score.
@@ -139,6 +140,7 @@ def optimize_torsions_vina(mol: Chem.Mol,
                         loss = vina_scoring(coords.unsqueeze(0), pocket_coords, query_features,
                                           pocket_features, num_rotatable_bonds, weight_preset,
                                           intramolecular_mask=single_intra_mask,
+                                          precomputed_matrices=precomputed_matrices,
                                           intermolecular_exclusion_mask=single_intermol_mask)
                         loss = loss.sum()
 
@@ -164,6 +166,9 @@ def optimize_torsions_vina(mol: Chem.Mol,
                     if n_poses > 1:
                         print(f"    All {batch_len} poses converged at step {step + 1}")
                     break
+            # Write LBFGS results back to optimized_coords
+            with torch.no_grad():
+                optimized_coords[start_idx:end_idx] = torch.stack([m() for m in models])
         else:
             # Adam/AdamW standard loop with batched kinematics
             model = LigandKinematics(mol, ref_indices, batch_init_coords, device, freeze_anchor=freeze_anchor)
@@ -197,6 +202,7 @@ def optimize_torsions_vina(mol: Chem.Mol,
                 losses = vina_scoring(coords, pocket_coords, query_features, pocket_features,
                                       num_rotatable_bonds, weight_preset,
                                       intramolecular_mask=batch_intra_mask,
+                                      precomputed_matrices=precomputed_matrices,
                                       intermolecular_exclusion_mask=batch_intermol_mask)
 
                 # Ensure losses is 1D
